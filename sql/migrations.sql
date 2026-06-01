@@ -39,3 +39,7 @@ CREATE TABLE friends (
   created_at TIMESTAMP DEFAULT NOW(),
   UNIQUE(user_id, friend_id)
 );
+
+-- Add math problems to daily content
+ALTER TABLE daily_content
+ADD COLUMN math_problems JSONB;
