@@ -85,7 +85,7 @@ def get_global_leaderboard():
     today = date.today().isoformat()
 
     result = supabase.table("scores").select(
-        "user_id, total_score, guess_score, maths_score, trivia_score, users(username)"
+        "user_id, total_score, guess_score, maths_score, trivia_score"
     ).eq("date", today).order("total_score", desc=True).limit(50).execute()
 
     if not result.data:
@@ -105,7 +105,7 @@ def get_global_leaderboard():
     for i, s in enumerate(scores):
         leaderboard.append({
             "rank": i + 1,
-            "username": s["users"]["username"] if s["users"] else "unknown",
+            "username": s["user_id"],
             "total_score": s["total_score"],
             "guess_score": s["guess_score"],
             "maths_score": s["maths_score"],
