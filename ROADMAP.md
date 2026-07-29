@@ -37,8 +37,8 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 - [x] Cohesive color theme (`Theme.swift`: indigo accent, adaptive light/dark, card
       containers) applied across Math/Guess/Trivia/Leaderboard/Friends
 - [x] Card-style containers for leaderboard rows / game screens
-- [~] Small delight moments — trivia option selection pulse + medal-colored ranks done;
-      no result-reveal animations yet
+- [x] Small delight moments — trivia option selection pulse, medal-colored ranks, and a
+      spring scale+fade reveal when Maths/Guess/Trivia results appear
 - [ ] App icon
 
 ## Hardening (pre-launch)
