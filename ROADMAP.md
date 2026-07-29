@@ -84,10 +84,17 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       "Leaderboard", fit without truncation) — decided not to build a custom tab bar
       since the system default already satisfies the brief and a custom one would risk
       breaking swipe/accessibility/Dynamic Type behavior that comes free natively
-- [ ] Dynamic Type / accessibility labels pass across all screens (added a few
-      accessibility labels to Guess/Profile already, not yet swept across the whole app)
+- [x] Dynamic Type pass: converted every fixed-`size:` "hero" font (screen headers, the
+      Maths equation, the Guess/Profile score displays, `ResultCard`'s title) to
+      `@ScaledMetric` so they actually grow with the user's text size setting instead of
+      staying pixel-locked; added accessibility labels/grouping to headers, the Maths
+      stopwatch, and icon-only toolbar buttons (share, streak badge). Verified live by
+      setting the simulator to `accessibility-extra-large` via
+      `xcrun simctl ui <device> content_size` — text visibly scales up and layouts
+      reflow without clipping. Icon-only sizes (avatars, symbols) were left fixed —
+      text legibility was the actual accessibility concern, not icon dimensions
 - [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
-      Quick Maths and Guess so far)
+      Quick Maths, Guess, and Trivia so far)
 
 ## Hardening (pre-launch)
 
