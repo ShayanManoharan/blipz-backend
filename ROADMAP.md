@@ -54,14 +54,18 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       screen shows completion time. `maths_score` still always grades 20/20 for anyone
       who finishes (unchanged backend contract) — elapsed time is client-side only,
       not persisted or factored into leaderboard ranking yet
-- [ ] AI Prompt Guess redesign (hero screen — glow treatment, animated score reveal)
+- [x] AI Prompt Guess redesign (hero screen): violet glow behind the artwork card,
+      "AI is judging your guess…" interim state, animated 0→score count-up via
+      `.contentTransition(.numericText)`, a completed state with a share button
+      (reuses the shared `ScoreCardRenderer` extracted from Leaderboard's share code)
 - [ ] Daily Trivia redesign (tactile option cards, progress bar, haptics)
 - [ ] Leaderboard redesign (podium, avatars, "Daily Commentary" card)
 - [ ] Profile redesign (hero card, stat cards, SF Symbols instead of emoji)
 - [ ] Tab bar polish (floating surface, consistent selected state)
-- [ ] Dynamic Type / accessibility labels pass across all screens
+- [ ] Dynamic Type / accessibility labels pass across all screens (added a few
+      accessibility labels to Guess already, not yet swept across the whole app)
 - [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
-      Quick Maths only so far)
+      Quick Maths and Guess so far)
 
 ## Hardening (pre-launch)
 
