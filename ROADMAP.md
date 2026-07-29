@@ -72,10 +72,15 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       3-player podium branch is code-reviewed but not visually verified — the dev DB
       only has one real player today and inserting fake rows would need fake
       `auth.users` rows to satisfy the FK, so I didn't fabricate data for a screenshot
-- [ ] Profile redesign (hero card, stat cards, SF Symbols instead of emoji)
+- [x] Profile redesign: emoji swapped for SF Symbols throughout (flame/trophy/number/
+      photo/questionmark icons), each game row now shows an icon + progress bar + score
+      + a completion checkmark (only for Maths, where 20/20 is a reliable "finished"
+      signal post-rework — Guess/Trivia can legitimately score 0 without meaning
+      "not played," so no false checkmark there), a "Today's Total" card, and a
+      share-results button gated on `totalScore > 0`. Screenshot-verified.
 - [ ] Tab bar polish (floating surface, consistent selected state)
 - [ ] Dynamic Type / accessibility labels pass across all screens (added a few
-      accessibility labels to Guess already, not yet swept across the whole app)
+      accessibility labels to Guess/Profile already, not yet swept across the whole app)
 - [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
       Quick Maths and Guess so far)
 
