@@ -17,10 +17,12 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 
 - [x] Global daily leaderboard
 - [x] Friends leaderboard + add-by-username
-- [x] Streaks (backend: increment/reset logic + `GET /users/me`)
+- [x] Streaks (backend: increment/reset logic + `GET /users/me`, now also returns
+      today's per-game scores for the share card)
 - [~] Streak surfaced in iOS only as a small flame badge in the Leaderboard toolbar —
       no dedicated Profile screen (username, longest streak, history) yet
-- [ ] Shareable score card (Wordle-style, one-tap share of daily results)
+- [x] Shareable score card — `ScoreCardView.swift` rendered via `ImageRenderer` +
+      `ShareLink` from the Leaderboard toolbar, no dedicated Profile screen needed for it
 
 ## AI agents
 
