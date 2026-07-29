@@ -43,3 +43,22 @@ CREATE TABLE friends (
 -- Add math problems to daily content
 ALTER TABLE daily_content
 ADD COLUMN math_problems JSONB;
+
+-- Anonymous Supabase auth users have no email, so it can no longer be required
+ALTER TABLE users ALTER COLUMN email DROP NOT NULL;
+
+-- Auto-create a public.users row (same id as the auth user) on every sign-in,
+-- so scores/friends FK constraints are always satisfiable with no app-level race.
+CREATE OR REPLACE FUNCTION public.handle_new_user()
+RETURNS trigger AS $$
+BEGIN
+  INSERT INTO public.users (id, username, email)
+  VALUES (NEW.id, 'guest_' || substr(NEW.id::text, 1, 8), NEW.email)
+  ON CONFLICT (id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();

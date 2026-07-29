@@ -3,7 +3,6 @@
 # Pydantic models validate requests and responses automatically
 
 from pydantic import BaseModel
-from typing import Optional
 from datetime import date
 
 # --- User ---
@@ -20,15 +19,12 @@ class UserResponse(BaseModel):
 
 # --- Scores ---
 class MathsScoreSubmit(BaseModel):
-    user_id: str
-    score: int
+    answers: list[int]
 
 class GuessScoreSubmit(BaseModel):
-    user_id: str
     guess: str
 
 class TriviaScoreSubmit(BaseModel):
-    user_id: str
     answers: list[str]
 
 class ScoreResponse(BaseModel):

@@ -4,18 +4,14 @@
 # Uses OpenAI for both image generation (DALL-E) and text (GPT-4o-mini)
 # Stores everything in Supabase so all players see the same content
 
-import os
 import json
 import random
-import httpx
 from datetime import date
 from openai import OpenAI
 from app.database import supabase
-from dotenv import load_dotenv
+from app.config import settings
 
-load_dotenv()
-
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(api_key=settings.openai_api_key)
 
 def generate_math_problems(count=20):
     problems = []

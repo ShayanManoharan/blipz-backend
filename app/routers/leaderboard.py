@@ -2,7 +2,8 @@
 # Handles all leaderboard-related API endpoints
 # Global daily leaderboard, friends leaderboard, and daily average score
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.auth import get_current_user_id
 from app.database import supabase
 from datetime import date
 import random
@@ -85,7 +86,7 @@ def get_global_leaderboard():
     today = date.today().isoformat()
 
     result = supabase.table("scores").select(
-        "user_id, total_score, guess_score, maths_score, trivia_score"
+        "user_id, total_score, guess_score, maths_score, trivia_score, users(username)"
     ).eq("date", today).order("total_score", desc=True).limit(50).execute()
 
     if not result.data:
@@ -105,7 +106,7 @@ def get_global_leaderboard():
     for i, s in enumerate(scores):
         leaderboard.append({
             "rank": i + 1,
-            "username": s["user_id"],
+            "username": s["users"]["username"] if s["users"] else "unknown",
             "total_score": s["total_score"],
             "guess_score": s["guess_score"],
             "maths_score": s["maths_score"],
@@ -119,8 +120,8 @@ def get_global_leaderboard():
         "leaderboard": leaderboard
     }
 
-@router.get("/friends/{user_id}")
-def get_friends_leaderboard(user_id: str):
+@router.get("/friends")
+def get_friends_leaderboard(user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
 
     # Get friend IDs

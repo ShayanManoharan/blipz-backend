@@ -4,13 +4,10 @@
 # Compares it against the hidden prompt and scores it out of 10
 # Uses GPT-4o-mini to reason about semantic similarity
 
-import os
 from openai import OpenAI
-from dotenv import load_dotenv
+from app.config import settings
 
-load_dotenv()
-
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai_client = OpenAI(api_key=settings.openai_api_key)
 
 async def score_guess(player_guess: str, actual_prompt: str) -> float:
     response = openai_client.chat.completions.create(

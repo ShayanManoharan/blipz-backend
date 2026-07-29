@@ -2,9 +2,10 @@
 # Handles all game-related API endpoints
 # Routes for fetching daily content and submitting scores for all 3 games
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from app.agents.content_generator import generate_daily_content
 from app.agents.guess_scorer import score_guess
+from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
 from app.models.schemas import MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit
 from datetime import date
@@ -52,7 +53,7 @@ def upsert_score(user_id: str, today: str, field: str, value):
 def test():
     return {"message": "Games router is working"}
 
-@router.post("/generate-daily-content")
+@router.post("/generate-daily-content", dependencies=[Depends(require_admin_token)])
 async def trigger_daily_content():
     result = await generate_daily_content()
     return result
@@ -66,7 +67,7 @@ def get_daily_content():
     return result.data[0]
 
 @router.post("/submit-guess")
-async def submit_guess(body: GuessScoreSubmit):
+async def submit_guess(body: GuessScoreSubmit, user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
 
     # Get today's actual prompt
@@ -80,30 +81,45 @@ async def submit_guess(body: GuessScoreSubmit):
     score = await score_guess(body.guess, actual_prompt)
 
     # Save to database
-    upsert_score(body.user_id, today, "guess_score", score)
+    upsert_score(user_id, today, "guess_score", score)
 
     return {
-        "user_id": body.user_id,
+        "user_id": user_id,
         "guess": body.guess,
         "score": score,
         "date": today
     }
 
 @router.post("/submit-maths")
-def submit_maths(body: MathsScoreSubmit):
+def submit_maths(body: MathsScoreSubmit, user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
 
+    # Get today's math problems to check answers
+    content = supabase.table("daily_content").select("math_problems").eq("date", today).execute()
+    if not content.data:
+        raise HTTPException(status_code=404, detail="No content found for today")
+
+    problems = content.data[0]["math_problems"]
+
+    # Score the answers
+    correct = 0
+    for i, problem in enumerate(problems):
+        if i < len(body.answers) and body.answers[i] == problem["answer"]:
+            correct += 1
+
     # Save to database
-    upsert_score(body.user_id, today, "maths_score", body.score)
+    upsert_score(user_id, today, "maths_score", correct)
 
     return {
-        "user_id": body.user_id,
-        "maths_score": body.score,
+        "user_id": user_id,
+        "maths_score": correct,
+        "correct": correct,
+        "total": len(problems),
         "date": today
     }
 
 @router.post("/submit-trivia")
-def submit_trivia(body: TriviaScoreSubmit):
+def submit_trivia(body: TriviaScoreSubmit, user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
 
     # Get today's trivia questions to check answers
@@ -120,10 +136,10 @@ def submit_trivia(body: TriviaScoreSubmit):
             correct += 1
 
     # Save to database
-    upsert_score(body.user_id, today, "trivia_score", correct)
+    upsert_score(user_id, today, "trivia_score", correct)
 
     return {
-        "user_id": body.user_id,
+        "user_id": user_id,
         "trivia_score": correct,
         "correct": correct,
         "total": len(questions),
