@@ -6,3 +6,4 @@ openai==2.38.0
 supabase==2.30.1
 python-dotenv==1.2.2
 PyJWT==2.13.0
+APScheduler==3.11.3

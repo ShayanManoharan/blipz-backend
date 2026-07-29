@@ -5,11 +5,22 @@
 # The / endpoint — a simple health check so we can confirm the server is running
 
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers import games, leaderboard, friends, users
+from app.scheduler import start_scheduler, stop_scheduler
 
-app = FastAPI(title="Blipz API", description="API for Blipz game", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    start_scheduler()
+    yield
+    stop_scheduler()
+
+
+app = FastAPI(title="Blipz API", description="API for Blipz game", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

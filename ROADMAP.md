@@ -24,18 +24,19 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 
 ## AI agents
 
-- [x] Daily Content Generator (midnight image prompt + DALL-E image + trivia) — currently
-      triggered manually via `POST /games/generate-daily-content` (admin-token protected)
+- [x] Daily Content Generator (midnight image prompt + DALL-E image + trivia) — runs
+      automatically at local midnight via APScheduler (`app/scheduler.py`), also still
+      manually triggerable via `POST /games/generate-daily-content` (admin-token protected)
 - [x] Guess Scorer (semantic scoring of player guesses)
 - [x] Leaderboard Narrator (daily funny summary, real implementation)
-- [ ] Scheduler so the Daily Content Generator actually runs at midnight automatically
-      (APScheduler via FastAPI lifespan, or platform cron hitting the admin endpoint)
 
 ## Design / polish
 
-- [ ] Cohesive color theme + typography (currently default SwiftUI styling throughout)
-- [ ] Card-style containers for leaderboard rows / game screens instead of plain lists/VStacks
-- [ ] Small delight moments (result animations, streak flame animation, etc.)
+- [x] Cohesive color theme (`Theme.swift`: indigo accent, adaptive light/dark, card
+      containers) applied across Math/Guess/Trivia/Leaderboard/Friends
+- [x] Card-style containers for leaderboard rows / game screens
+- [~] Small delight moments — trivia option selection pulse + medal-colored ranks done;
+      no result-reveal animations yet
 - [ ] App icon
 
 ## Hardening (pre-launch)
