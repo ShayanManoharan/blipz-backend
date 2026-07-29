@@ -93,7 +93,7 @@ def get_global_leaderboard():
         return {
             "date": today,
             "message": "no scores yet today",
-            "average_score": 0,
+            "average_guess_score": 0,
             "leaderboard": []
         }
 
