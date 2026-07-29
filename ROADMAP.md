@@ -43,6 +43,26 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
       programmatically (Pillow, zero-cost) with light/dark/tinted appearance variants,
       verified rendering correctly on the simulator home screen
 
+## Visual redesign — "playful premium daily arcade" (in progress, started 2026-07-29)
+
+Extending the existing `Theme.swift`/`PrimaryButtonStyle`/`ResultCard` system (not
+replacing it) toward a stronger electric-violet identity, staged one screen at a time.
+
+- [x] Quick Maths reworked: 20 problems shuffled into a random per-player order, a
+      "Play" button that starts a live stopwatch (`TimelineView`), auto-advance on a
+      correct answer (no Submit button — wrong stays on the same question), result
+      screen shows completion time. `maths_score` still always grades 20/20 for anyone
+      who finishes (unchanged backend contract) — elapsed time is client-side only,
+      not persisted or factored into leaderboard ranking yet
+- [ ] AI Prompt Guess redesign (hero screen — glow treatment, animated score reveal)
+- [ ] Daily Trivia redesign (tactile option cards, progress bar, haptics)
+- [ ] Leaderboard redesign (podium, avatars, "Daily Commentary" card)
+- [ ] Profile redesign (hero card, stat cards, SF Symbols instead of emoji)
+- [ ] Tab bar polish (floating surface, consistent selected state)
+- [ ] Dynamic Type / accessibility labels pass across all screens
+- [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
+      Quick Maths only so far)
+
 ## Hardening (pre-launch)
 
 - [x] `pytest` smoke tests for backend routes/agents (`tests/`: root + `/games/test` routes,
