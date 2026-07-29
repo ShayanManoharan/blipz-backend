@@ -8,9 +8,28 @@ from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
 from app.models.schemas import MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit
-from datetime import date
+from datetime import date, timedelta
 
 router = APIRouter()
+
+def update_streak(user_id: str, today: str):
+    user = supabase.table("users").select("current_streak, longest_streak").eq("id", user_id).execute()
+    if not user.data:
+        return
+
+    current_streak = user.data[0]["current_streak"]
+    longest_streak = user.data[0]["longest_streak"]
+
+    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
+    played_yesterday = supabase.table("scores").select("id").eq("user_id", user_id).eq("date", yesterday).execute()
+
+    new_streak = current_streak + 1 if played_yesterday.data else 1
+    new_longest = max(longest_streak, new_streak)
+
+    supabase.table("users").update({
+        "current_streak": new_streak,
+        "longest_streak": new_longest
+    }).eq("id", user_id).execute()
 
 def upsert_score(user_id: str, today: str, field: str, value):
     # Check if a score row exists for this user today
@@ -37,7 +56,7 @@ def upsert_score(user_id: str, today: str, field: str, value):
             "total_score": total
         }).eq("user_id", user_id).eq("date", today).execute()
     else:
-        # Create new row
+        # Create new row - this is the user's first game of the day, so update their streak
         data = {
             "user_id": user_id,
             "date": today,
@@ -48,6 +67,7 @@ def upsert_score(user_id: str, today: str, field: str, value):
             "total_score": round(value, 1)
         }
         supabase.table("scores").insert(data).execute()
+        update_streak(user_id, today)
 
 @router.get("/test")
 def test():
