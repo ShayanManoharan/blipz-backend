@@ -62,3 +62,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
+
+-- Cache the Leaderboard Narrator's generated message once per day
+ALTER TABLE daily_content
+ADD COLUMN daily_message TEXT;

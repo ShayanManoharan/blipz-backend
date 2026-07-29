@@ -3,6 +3,7 @@
 # Global daily leaderboard, friends leaderboard, and daily average score
 
 from fastapi import APIRouter, Depends
+from app.agents.leaderboard_narrator import generate_daily_message
 from app.auth import get_current_user_id
 from app.database import supabase
 from datetime import date
@@ -77,12 +78,28 @@ def get_daily_message(average_score: float) -> str:
         pool = MESSAGES["free"]
     return random.choice(pool)
 
+async def get_or_generate_daily_message(today: str, average_guess: float) -> str:
+    content = supabase.table("daily_content").select("daily_message").eq("date", today).execute()
+
+    if content.data and content.data[0].get("daily_message"):
+        return content.data[0]["daily_message"]
+
+    try:
+        message = await generate_daily_message(average_guess)
+    except Exception:
+        message = get_daily_message(average_guess)
+
+    if content.data:
+        supabase.table("daily_content").update({"daily_message": message}).eq("date", today).execute()
+
+    return message
+
 @router.get("/test")
 def test():
     return {"message": "Leaderboard router is working"}
 
 @router.get("/global")
-def get_global_leaderboard():
+async def get_global_leaderboard():
     today = date.today().isoformat()
 
     result = supabase.table("scores").select(
@@ -115,7 +132,7 @@ def get_global_leaderboard():
 
     return {
         "date": today,
-        "message": get_daily_message(average_guess),
+        "message": await get_or_generate_daily_message(today, average_guess),
         "average_guess_score": average_guess,
         "leaderboard": leaderboard
     }
