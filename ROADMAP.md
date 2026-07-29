@@ -78,7 +78,12 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       signal post-rework — Guess/Trivia can legitimately score 0 without meaning
       "not played," so no false checkmark there), a "Today's Total" card, and a
       share-results button gated on `totalScore > 0`. Screenshot-verified.
-- [ ] Tab bar polish (floating surface, consistent selected state)
+- [x] Tab bar polish: verified on iPhone 16e (smallest relevant simulator) that iOS 26's
+      native `TabView` chrome already renders as a soft elevated floating pill with
+      correct violet active-tint and no label crowding (all 5 labels, including
+      "Leaderboard", fit without truncation) — decided not to build a custom tab bar
+      since the system default already satisfies the brief and a custom one would risk
+      breaking swipe/accessibility/Dynamic Type behavior that comes free natively
 - [ ] Dynamic Type / accessibility labels pass across all screens (added a few
       accessibility labels to Guess/Profile already, not yet swept across the whole app)
 - [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
