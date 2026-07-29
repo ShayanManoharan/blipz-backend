@@ -93,8 +93,15 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       `xcrun simctl ui <device> content_size` — text visibly scales up and layouts
       reflow without clipping. Icon-only sizes (avatars, symbols) were left fixed —
       text legibility was the actual accessibility concern, not icon dimensions
-- [ ] Haptics pass across remaining screens (`Haptics.swift` helper added, used in
-      Quick Maths, Guess, and Trivia so far)
+- [x] Haptics pass complete: added to Leaderboard's Global/Friends segmented switch
+      (light) and Friends' add-friend flow (light on tap, success/error on the result),
+      rounding out Quick Maths/Guess/Trivia's existing haptics. Every interactive flow
+      in the redesign now has tactile feedback.
+
+**Redesign complete** — all items above are done. Remaining polish ideas for a future
+pass: real result-reveal confetti/particle effects, a proper avatar/photo system (all
+avatars are currently generated initials), and persisting Quick Maths' elapsed time
+server-side if speed should ever factor into leaderboard ranking.
 
 ## Hardening (pre-launch)
 
