@@ -27,7 +27,7 @@ def add_friend(body: AddFriendRequest, user_id: str = Depends(get_current_user_i
 
 @router.get("/list")
 def get_friends(user_id: str = Depends(get_current_user_id)):
-    result = supabase.table("friends").select("friend_id, users(username)").eq("user_id", user_id).execute()
+    result = supabase.table("friends").select("friend_id, users!friends_friend_id_fkey(username)").eq("user_id", user_id).execute()
     friends = [
         {"id": f["friend_id"], "username": f["users"]["username"] if f["users"] else "unknown"}
         for f in result.data

@@ -66,3 +66,19 @@ CREATE TRIGGER on_auth_user_created
 -- Cache the Leaderboard Narrator's generated message once per day
 ALTER TABLE daily_content
 ADD COLUMN daily_message TEXT;
+
+-- Fix schema drift: scores.user_id and friends.user_id/friend_id were actually
+-- created as plain TEXT with no foreign key (despite this file's original
+-- CREATE TABLE statements above showing UUID + REFERENCES) - discovered because
+-- PostgREST couldn't embed users(username) in leaderboard joins ("Could not
+-- find a relationship between 'scores' and 'users'"). Run this after clearing
+-- any non-UUID test data from these columns.
+ALTER TABLE scores
+  ALTER COLUMN user_id TYPE UUID USING user_id::uuid,
+  ADD CONSTRAINT scores_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id);
+
+ALTER TABLE friends
+  ALTER COLUMN user_id TYPE UUID USING user_id::uuid,
+  ALTER COLUMN friend_id TYPE UUID USING friend_id::uuid,
+  ADD CONSTRAINT friends_user_id_fkey FOREIGN KEY (user_id) REFERENCES users(id),
+  ADD CONSTRAINT friends_friend_id_fkey FOREIGN KEY (friend_id) REFERENCES users(id);
