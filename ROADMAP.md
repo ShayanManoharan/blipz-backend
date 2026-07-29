@@ -49,8 +49,10 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
       instead of crashing on a bare `float()` parse; `content_generator.py`'s
       `parse_trivia_questions` falls back to extracting the outermost `[...]` if the model
       wraps the JSON array in stray prose
-- [ ] Dockerfile for backend hosting
-- [ ] Pick and configure real hosting for backend (currently local `uvicorn --reload` only)
+- [x] Dockerfile for backend hosting — verified with a real `docker build` + `docker run`
+      against `.env`, confirmed `/` responds and the scheduler starts inside the container
+- [ ] Pick and configure real hosting for backend (currently local `uvicorn --reload` only) —
+      needs a hosting provider decision, not something to pick unilaterally
 
 ## Phase (product)
 
