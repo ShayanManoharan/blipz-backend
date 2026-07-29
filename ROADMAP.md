@@ -64,7 +64,14 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
 - [x] Global fix: `screenBackground()` now top-aligns content instead of centering it
       in the middle of the screen — addresses "reduce excessive unused vertical space"
       for every screen at once (Theme.swift change, not per-screen)
-- [ ] Leaderboard redesign (podium, avatars, "Daily Commentary" card)
+- [x] Leaderboard redesign: top-3 podium (SF Symbol rank badges, not emoji) shown when
+      3+ players exist, initials-avatar circles on every row, current-user row
+      highlighted + "You" tag (matched by username, no backend change), narrator message
+      restyled as a "Daily Commentary" card, empty states for both Global/Friends scopes.
+      Verified live against the real single-player leaderboard (non-podium path); the
+      3-player podium branch is code-reviewed but not visually verified — the dev DB
+      only has one real player today and inserting fake rows would need fake
+      `auth.users` rows to satisfy the FK, so I didn't fabricate data for a screenshot
 - [ ] Profile redesign (hero card, stat cards, SF Symbols instead of emoji)
 - [ ] Tab bar polish (floating surface, consistent selected state)
 - [ ] Dynamic Type / accessibility labels pass across all screens (added a few
