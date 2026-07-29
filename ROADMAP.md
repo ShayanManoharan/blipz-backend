@@ -39,7 +39,9 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 - [x] Card-style containers for leaderboard rows / game screens
 - [x] Small delight moments — trivia option selection pulse, medal-colored ranks, and a
       spring scale+fade reveal when Maths/Guess/Trivia results appear
-- [ ] App icon
+- [x] App icon — a simple "blip" (radar ring + dot) mark on an indigo gradient, generated
+      programmatically (Pillow, zero-cost) with light/dark/tinted appearance variants,
+      verified rendering correctly on the simulator home screen
 
 ## Hardening (pre-launch)
 
