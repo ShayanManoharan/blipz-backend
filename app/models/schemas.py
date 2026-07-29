@@ -40,3 +40,7 @@ class LeaderboardEntry(BaseModel):
     username: str
     total_score: float
     date: date
+
+# --- Friends ---
+class AddFriendRequest(BaseModel):
+    friend_username: str

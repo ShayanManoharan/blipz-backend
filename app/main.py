@@ -7,7 +7,7 @@
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import games, leaderboard
+from app.routers import games, leaderboard, friends
 
 app = FastAPI(title="Blipz API", description="API for Blipz game", version="1.0.0")
 
@@ -21,6 +21,7 @@ app.add_middleware(
 
 app.include_router(games.router, prefix="/games", tags=["games"])
 app.include_router(leaderboard.router, prefix="/leaderboard", tags=["leaderboard"])
+app.include_router(friends.router, prefix="/friends", tags=["friends"])
 
 @app.get("/")
 def root():
