@@ -19,8 +19,8 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 - [x] Friends leaderboard + add-by-username
 - [x] Streaks (backend: increment/reset logic + `GET /users/me`, now also returns
       today's per-game scores for the share card)
-- [~] Streak surfaced in iOS only as a small flame badge in the Leaderboard toolbar —
-      no dedicated Profile screen (username, longest streak, history) yet
+- [x] Dedicated Profile tab (`ProfileView.swift`) showing username, current/longest streak,
+      and today's per-game scores, in addition to the existing Leaderboard toolbar badge
 - [x] Shareable score card — `ScoreCardView.swift` rendered via `ImageRenderer` +
       `ShareLink` from the Leaderboard toolbar, no dedicated Profile screen needed for it
 
@@ -52,7 +52,7 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 - [x] Dockerfile for backend hosting — verified with a real `docker build` + `docker run`
       against `.env`, confirmed `/` responds and the scheduler starts inside the container
 - [ ] Pick and configure real hosting for backend (currently local `uvicorn --reload` only) —
-      needs a hosting provider decision, not something to pick unilaterally
+      user opted to stay local for now (2026-07-29), revisit when ready to deploy
 
 ## Phase (product)
 
