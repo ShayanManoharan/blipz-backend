@@ -58,7 +58,12 @@ replacing it) toward a stronger electric-violet identity, staged one screen at a
       "AI is judging your guess…" interim state, animated 0→score count-up via
       `.contentTransition(.numericText)`, a completed state with a share button
       (reuses the shared `ScoreCardRenderer` extracted from Leaderboard's share code)
-- [ ] Daily Trivia redesign (tactile option cards, progress bar, haptics)
+- [x] Daily Trivia redesign: header + progress bar, tactile option cards that clearly
+      reveal correct (green) / incorrect (red, dims the rest) on selection with
+      success/error haptics, 550ms pause before advancing so the reveal is visible
+- [x] Global fix: `screenBackground()` now top-aligns content instead of centering it
+      in the middle of the screen — addresses "reduce excessive unused vertical space"
+      for every screen at once (Theme.swift change, not per-screen)
 - [ ] Leaderboard redesign (podium, avatars, "Daily Commentary" card)
 - [ ] Profile redesign (hero card, stat cards, SF Symbols instead of emoji)
 - [ ] Tab bar polish (floating surface, consistent selected state)
