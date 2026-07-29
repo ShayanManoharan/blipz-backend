@@ -43,9 +43,12 @@ Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not 
 
 ## Hardening (pre-launch)
 
-- [ ] `pytest` smoke tests for backend routes/agents
-- [ ] Defensive parsing: `guess_scorer.py`'s bare `float()` parse, `content_generator.py`'s
-      markdown-fence-stripped `json.loads`
+- [x] `pytest` smoke tests for backend routes/agents (`tests/`: root + `/games/test` routes,
+      `parse_score` and `parse_trivia_questions` parsing edge cases) — run via `python -m pytest`
+- [x] Defensive parsing: `guess_scorer.py`'s `parse_score` now regex-extracts the first number
+      instead of crashing on a bare `float()` parse; `content_generator.py`'s
+      `parse_trivia_questions` falls back to extracting the outermost `[...]` if the model
+      wraps the JSON array in stray prose
 - [ ] Dockerfile for backend hosting
 - [ ] Pick and configure real hosting for backend (currently local `uvicorn --reload` only)
 

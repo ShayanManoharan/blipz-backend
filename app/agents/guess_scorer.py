@@ -4,10 +4,22 @@
 # Compares it against the hidden prompt and scores it out of 10
 # Uses GPT-4o-mini to reason about semantic similarity
 
+import re
+
 from openai import OpenAI
 from app.config import settings
 
 openai_client = OpenAI(api_key=settings.openai_api_key)
+
+def parse_score(score_text: str) -> float:
+    # Model sometimes wraps the number in extra text despite instructions —
+    # pull out the first number rather than crashing the request on a bare float() parse.
+    match = re.search(r"-?\d+(\.\d+)?", score_text.strip())
+    if not match:
+        return 0.0
+
+    score = round(float(match.group()), 1)
+    return max(0.0, min(10.0, score))
 
 async def score_guess(player_guess: str, actual_prompt: str) -> float:
     response = openai_client.chat.completions.create(
@@ -33,11 +45,6 @@ async def score_guess(player_guess: str, actual_prompt: str) -> float:
         }]
     )
 
-    score_text = response.choices[0].message.content.strip()
-    score = round(float(score_text), 1)
-    return max(0.0, min(10.0, score))
-
-
-
+    return parse_score(response.choices[0].message.content)
 
 

@@ -6,12 +6,28 @@
 
 import json
 import random
+import re
 from datetime import date
 from openai import OpenAI
 from app.database import supabase
 from app.config import settings
 
 openai_client = OpenAI(api_key=settings.openai_api_key)
+
+def parse_trivia_questions(trivia_text):
+    trivia_text = trivia_text.strip()
+    if trivia_text.startswith("```"):
+        trivia_text = trivia_text.split("\n", 1)[1].rsplit("```", 1)[0]
+
+    try:
+        return json.loads(trivia_text)
+    except json.JSONDecodeError:
+        # Model sometimes adds stray prose around the array despite instructions —
+        # fall back to extracting the outermost [...] before giving up.
+        match = re.search(r"\[.*\]", trivia_text, re.DOTALL)
+        if not match:
+            raise ValueError(f"Could not parse trivia questions from model output: {trivia_text!r}")
+        return json.loads(match.group())
 
 def generate_math_problems(count=20):
     problems = []
@@ -101,11 +117,7 @@ async def generate_daily_content():
         }]
     )
 
-    trivia_text = trivia_response.choices[0].message.content.strip()
-    if trivia_text.startswith("```"):
-        trivia_text = trivia_text.split("\n", 1)[1].rsplit("```", 1)[0]
-
-    trivia_questions = json.loads(trivia_text)
+    trivia_questions = parse_trivia_questions(trivia_response.choices[0].message.content)
 
     # Step 4 — Generate math problems
     math_problems = generate_math_problems(20)
