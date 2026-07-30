@@ -7,10 +7,10 @@ source of truth for "what's next," so keep it current rather than trusting memor
 Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not started
 
 **Production/App Store readiness:** see `PRODUCTION_AUDIT.md` (2026-07-30) — a full
-security/reliability audit found the game scoring is currently exploitable (public endpoint
-leaks answers), the backend isn't hosted, and several App Store requirements (account
-deletion, privacy manifest, consensual friending) are unimplemented. Read that before treating
-anything below as "launch-ready."
+security/reliability audit found the game scoring was exploitable (public endpoint leaked
+answers — **B1, fixed 2026-07-30**, see the audit doc), the backend isn't hosted, and several
+App Store requirements (account deletion, privacy manifest, consensual friending) are
+unimplemented. Read that before treating anything below as "launch-ready."
 
 ## Core gameplay
 

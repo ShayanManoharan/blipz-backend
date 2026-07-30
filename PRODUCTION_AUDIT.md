@@ -41,7 +41,7 @@ flowchart TB
 
     Views --> APIClient
     AuthMgr <-->|"anonymous sign-in, session, JWT"| SupaAuth
-    APIClient -->|"Bearer JWT (or none — see finding B1)"| Auth
+    APIClient -->|"Bearer JWT (required as of the B1 fix, 2026-07-30)"| Auth
     Auth --> Routers
     Routers -->|"secret/service-role key — bypasses RLS entirely"| DB
     Routers --> Storage
@@ -64,7 +64,7 @@ network calls go through `APIClient` → the FastAPI backend).
 
 ## 2. Data flow per game
 
-### Quick Maths — answers are leaked before play (see B1)
+### Quick Maths — data flow as it was before the 2026-07-30 fix
 
 ```mermaid
 sequenceDiagram
@@ -85,14 +85,28 @@ sequenceDiagram
 ```
 
 The grading logic itself is correct (server computes correctness, doesn't trust a
-client-sent score) — the leak is entirely in what `GET /games/daily-content` exposes.
+client-sent score) — the leak was entirely in what `GET /games/daily-content` exposed.
 
-### Daily Trivia — identical leak
+> **✅ Fixed 2026-07-30.** The endpoint now requires authentication and returns
+> `PublicMathProblem`/`PublicTriviaQuestion`/`PublicDailyContentResponse` (see
+> `app/models/schemas.py`) instead of the raw row. **`math_problems[].answer` is the one
+> field intentionally kept** — Quick Maths' "type the correct number to auto-advance"
+> mechanic checks answers on-device with no network round trip per keystroke, and
+> redesigning that was explicitly out of scope for this fix. This remains a documented,
+> accepted residual risk: a client can still read `answer` and submit a perfect Maths
+> score without playing. Trivia and Guess no longer have this problem at all (see below).
 
-Same shape as above; `trivia_questions[].answer` is returned in the same public,
-unauthenticated payload (`app/routers/games.py:81-87`).
+### Daily Trivia — ✅ fixed 2026-07-30
 
-### AI Prompt Guess — the answer *and* an unlimited re-roll
+`trivia_questions[].answer` is no longer returned by `GET /games/daily-content` — the
+endpoint now returns `PublicTriviaQuestion` (question/category/options only).
+`/submit-trivia` was already grading server-side by re-fetching the real answers, so
+scoring behavior is unchanged. One side effect: `TriviaGameView`'s per-question
+correct/incorrect reveal (added in an earlier polish pass) depended on the client having
+`answer` and has been removed — selecting an option now shows a neutral "selected" state
+and advances; the aggregate correct/total is still shown on the result screen, unaffected.
+
+### AI Prompt Guess — ✅ fixed 2026-07-30 (prompt leak only; re-roll/rate-limit still open, see B2)
 
 ```mermaid
 sequenceDiagram
@@ -101,16 +115,16 @@ sequenceDiagram
     participant DB as Supabase
     participant AI as OpenAI
 
-    Client->>API: GET /games/daily-content
+    Client->>API: GET /games/daily-content (auth required as of the fix)
     DB-->>API: row incl. image_prompt (the literal answer)
-    API-->>Client: full row, image_prompt included ⚠️
-    Client->>API: POST /games/submit-guess {guess} (repeatable, no cap)
-    API->>DB: fetch image_prompt again
+    API-->>Client: PublicDailyContentResponse — image_prompt stripped ✅
+    Client->>API: POST /games/submit-guess {guess} (still repeatable — B2 still open)
+    API->>DB: fetch image_prompt server-side (never trusts a client-supplied one)
     API->>AI: score_guess(guess, image_prompt) — real $ per call
     AI-->>API: score (LLM judge, non-deterministic)
-    API->>DB: upsert — overwrites previous guess_score every time
+    API->>DB: upsert — still overwrites previous guess_score every time
     API-->>Client: {score}
-    Note over Client,AI: Client can submit image_prompt verbatim as its own "guess,"<br/>or spam-resubmit to re-roll a better score — each call costs real OpenAI $
+    Note over Client,AI: Prompt leak is fixed. The re-roll/unlimited-cost issue (B2) is separate and still open.
 ```
 
 ---
@@ -121,7 +135,7 @@ sequenceDiagram
 
 | ID | Finding | File | Risk |
 |----|---------|------|------|
-| **B1** | `GET /games/daily-content` is **fully unauthenticated** and returns `math_problems[].answer`, `trivia_questions[].answer`, and `image_prompt` (the Guess answer) in plaintext, before the user has played. | `app/routers/games.py:81-87`, `app/agents/content_generator.py` | A script can fetch this once and submit a perfect score for Maths/Trivia without ever opening the app. Guess is harder to fully automate but the prompt leak alone lets a player submit the exact answer text. **This breaks the entire leaderboard/streak system's integrity.** |
+| **B1** | ✅ **Fixed 2026-07-30.** `GET /games/daily-content` was fully unauthenticated and returned `trivia_questions[].answer` and `image_prompt` (the Guess answer) in plaintext, before the user played. Now requires auth and returns allowlisted `Public*` response models with those fields stripped. `math_problems[].answer` is intentionally still returned (documented exception — see the Quick Maths data-flow section above); everything else about the original finding is closed. Regression tests: `tests/test_daily_content_security.py`. | `app/routers/games.py`, `app/models/schemas.py` | Residual: a client can still read `math_problems[].answer` and submit a perfect Maths score without playing — accepted, not fixed, by design (see rationale above). |
 | **B2** | `submit_guess` has no per-day cap and `upsert_score`'s update path unconditionally overwrites `guess_score` on every call — no "first submission wins" guard. | `app/routers/games.py` (`submit_guess`, `upsert_score`) | Unlimited real OpenAI API calls per user per day (cost exposure) *and* a re-roll exploit (spam until you get a good score, since the LLM judge isn't perfectly deterministic). |
 | **B3** | Guess scoring interpolates the raw player-supplied guess text directly into the LLM prompt with no delimiter/sanitization. | `app/agents/guess_scorer.py:44` | Prompt-injection vector — a crafted guess could attempt to manipulate the judge into returning a maximal score. |
 
@@ -181,7 +195,8 @@ sequenceDiagram
 These must be fixed before any TestFlight/App Review submission, in rough order of how much
 they block everything else:
 
-1. **B1** — public endpoint leaks all three games' answers. (Backend)
+1. ~~**B1** — public endpoint leaks all three games' answers.~~ **✅ Fixed 2026-07-30**
+   (Trivia/Guess fully; Maths answer intentionally kept, see finding B1 above). (Backend)
 2. **B14 + B20** — no hosted backend; app points at localhost. (Deployment + iOS)
 3. **B19** — no account-deletion flow. (iOS + Backend)
 4. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
@@ -240,9 +255,9 @@ Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra
 
 ## 7. Ordered implementation roadmap
 
-1. **Fix B1 (answer leak)** — strip `answer`/`image_prompt` fields from `GET
-   /games/daily-content`'s public payload; grading endpoints already fetch `daily_content`
-   server-side independently, so this requires no change to the grading logic itself.
+1. ~~**Fix B1 (answer leak)**~~ **✅ Done 2026-07-30** — Trivia's `answer` and Guess's
+   `image_prompt` no longer appear in the public payload; the endpoint now requires auth.
+   Maths' `answer` stays exposed by design (see rationale above).
 2. **Fix B2 + add submission guards** — reject/ignore resubmission once a game is completed
    for the day (ties into the schema change in §5).
 3. **Deploy the backend** (fixes B14) — pick Fly.io/Render, wire the existing Dockerfile,
@@ -274,7 +289,8 @@ Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra
 Before inviting external testers:
 
 - [ ] Backend is reachable at a real HTTPS URL from outside the local network (B14/B20)
-- [ ] `GET /games/daily-content` no longer exposes any answer field (B1)
+- [x] `GET /games/daily-content` no longer exposes Trivia's answer or Guess's
+      image_prompt (B1, fixed 2026-07-30) — Maths' answer remains, by design
 - [ ] Each game can only be scored once per day per user, server-enforced (B2)
 - [ ] A missed/failed daily-content generation sends a real alert, not just a log line (B17)
 - [ ] Session-restore failure shows a real error/retry state, not a silently new identity (B8/B9)
