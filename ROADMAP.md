@@ -202,6 +202,52 @@ Second round based on further design feedback — same structure/layout/nav, vis
   (`dynamicTypeSize.isAccessibilitySize`, `reduceMotion` guards) were untouched —
   only colors and copy changed.
 
+### Branded game emblems (2026-07-30)
+
+Third round: gave each game a small designed identity instead of a bare SF Symbol,
+per feedback that completed emblems were losing their per-game color entirely.
+
+- [x] New reusable `BlipzGameEmblem.swift` (in `Theme/`, not Today-scoped, since it's a
+      genuine design-system component): a `BlipzGame` enum (guess/maths/trivia) driving
+      accent color, primary SF Symbol, an optional small secondary-symbol flourish, and
+      accessibility name; `BlipzGameEmblem` renders it as a squircle badge (gradient
+      fill, thin white inner border, centered white glyph, small corner-badge flourish)
+      that scales purely from a `size` parameter — no per-usage magic numbers.
+  - Guess: `photo.fill` + a small `sparkles` corner badge, violet/indigo.
+  - Maths: `bolt.fill` (speed-first, not a bare hashtag) + a small `number` corner
+    badge, electric blue.
+  - Trivia: `questionmark.bubble.fill` alone (already a compound "question in a
+    speech bubble" glyph, no secondary needed), warm amber.
+- [x] **Completion no longer erases game identity**: the badge's accent color, gradient,
+      and glyph never change on completion — the only addition is a thin green ring
+      around the whole badge. Guess/Maths/Trivia stay visually distinct even when all
+      three are done (this was the core problem with the previous plain-checkmark
+      swap-in, now fixed).
+- [x] Integrated in exactly three places, as scoped: the hero widget's header (40pt,
+      replacing no prior icon — the hero previously had none), each compact widget
+      (36pt, replacing the plain icon-in-a-circle), and the progress tracker's three
+      nodes (26pt, replacing the plain icon-in-a-circle there too). Removed the
+      now-orphaned `CompletionCheckmark` helper since nothing calls it anymore.
+  Also moved `TodayAccent` out of `TodayView.swift` (was `private`, so it wasn't
+  visible to the new emblem file) into `BlipzGameEmblem.swift` as the shared,
+  non-private source of truth for all three accent colors.
+- [x] `#Preview("Emblem grid")` added to the component file showing all 3 games at 3
+      sizes (30/36/52) in both ready and completed states, for Xcode-canvas iteration —
+      **this specific preview was not screenshotted**, since Xcode Previews render in
+      Xcode's canvas, which isn't reachable through the simulator-based screenshot
+      tooling available in this session. Live verification instead happened directly
+      against the real `TodayView` in the running simulator (see below).
+- **Verified live**: 0-of-3 (all three Ready, distinct colors) and all-3-completed
+  (all three retain their base color + green ring) on iPhone 17 Pro; one-screen fit
+  reconfirmed on iPhone 16e at 0-of-3; **light and dark mode** both checked on
+  iPhone 16e via `simctl ui <device> appearance` — emblems stay legible and vibrant
+  against the dark background.
+- **Incidental fix, not part of this task**: discovered while testing that no
+  `daily_content` row existed for today (2026-07-30) — the local machine slept
+  overnight, so the midnight `APScheduler` job never fired (it can't run while the
+  process itself is suspended). Seeded a placeholder row so the app has content today;
+  this is exactly the local-hosting limitation already tracked below.
+
 ## Hardening (pre-launch)
 
 - [x] `pytest` smoke tests for backend routes/agents (`tests/`: root + `/games/test` routes,
