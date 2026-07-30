@@ -106,7 +106,7 @@ correct/incorrect reveal (added in an earlier polish pass) depended on the clien
 `answer` and has been removed — selecting an option now shows a neutral "selected" state
 and advances; the aggregate correct/total is still shown on the result screen, unaffected.
 
-### AI Prompt Guess — ✅ fixed 2026-07-30 (prompt leak only; re-roll/rate-limit still open, see B2)
+### AI Prompt Guess — ✅ fixed 2026-07-30 (prompt leak, and now B2/B16 below too)
 
 ```mermaid
 sequenceDiagram
@@ -118,13 +118,14 @@ sequenceDiagram
     Client->>API: GET /games/daily-content (auth required as of the fix)
     DB-->>API: row incl. image_prompt (the literal answer)
     API-->>Client: PublicDailyContentResponse — image_prompt stripped ✅
-    Client->>API: POST /games/submit-guess {guess} (still repeatable — B2 still open)
-    API->>DB: fetch image_prompt server-side (never trusts a client-supplied one)
-    API->>AI: score_guess(guess, image_prompt) — real $ per call
+    Client->>API: POST /games/submit-guess {guess}
+    API->>API: already completed today? return stored result, skip OpenAI entirely ✅
+    API->>DB: (first time only) fetch image_prompt server-side — never a client-supplied one
+    API->>AI: score_guess(guess, image_prompt) — real $ per call, at most once/user/day now
     AI-->>API: score (LLM judge, non-deterministic)
-    API->>DB: upsert — still overwrites previous guess_score every time
-    API-->>Client: {score}
-    Note over Client,AI: Prompt leak is fixed. The re-roll/unlimited-cost issue (B2) is separate and still open.
+    API->>DB: complete_game_attempt() — atomic, never overwrites a prior completion
+    API-->>Client: {score, already_completed}
+    Note over Client,AI: Prompt leak fixed 2026-07-30. Re-roll/repeated-charge (B2) and rate limiting (B16) fixed the same day — see below.
 ```
 
 ---
@@ -136,7 +137,7 @@ sequenceDiagram
 | ID | Finding | File | Risk |
 |----|---------|------|------|
 | **B1** | ✅ **Fixed 2026-07-30.** `GET /games/daily-content` was fully unauthenticated and returned `trivia_questions[].answer` and `image_prompt` (the Guess answer) in plaintext, before the user played. Now requires auth and returns allowlisted `Public*` response models with those fields stripped. `math_problems[].answer` is intentionally still returned (documented exception — see the Quick Maths data-flow section above); everything else about the original finding is closed. Regression tests: `tests/test_daily_content_security.py`. | `app/routers/games.py`, `app/models/schemas.py` | Residual: a client can still read `math_problems[].answer` and submit a perfect Maths score without playing — accepted, not fixed, by design (see rationale above). |
-| **B2** | `submit_guess` has no per-day cap and `upsert_score`'s update path unconditionally overwrites `guess_score` on every call — no "first submission wins" guard. | `app/routers/games.py` (`submit_guess`, `upsert_score`) | Unlimited real OpenAI API calls per user per day (cost exposure) *and* a re-roll exploit (spam until you get a good score, since the LLM judge isn't perfectly deterministic). |
+| **B2** | ✅ **Fixed 2026-07-30.** `submit_guess`/`submit_maths`/`submit_trivia` now all go through `complete_game_attempt()`, which checks completion state before writing and uses an atomic conditional UPDATE (`.eq(completed_field, False)`) as a compare-and-swap guard — a repeated submission returns the original stored result (`already_completed: true`) instead of recomputing or overwriting. Guess specifically also checks-before-calling-OpenAI, so a resubmit never re-charges. Residual: in a narrow true-concurrency window (two requests both pass the check before either writes), a handful of extra OpenAI calls could still fire, though only one result is ever persisted — closing that fully would need a distributed lock, not added given the backend isn't hosted yet. Tests: `tests/test_daily_attempt_enforcement.py`. | `app/routers/games.py` (`complete_game_attempt`) | Residual: bounded extra-OpenAI-call risk in a millisecond-scale race window; no re-roll or storage corruption possible either way. |
 | **B3** | Guess scoring interpolates the raw player-supplied guess text directly into the LLM prompt with no delimiter/sanitization. | `app/agents/guess_scorer.py:44` | Prompt-injection vector — a crafted guess could attempt to manipulate the judge into returning a maximal score. |
 
 ### Daily content pipeline
@@ -170,7 +171,7 @@ sequenceDiagram
 |----|---------|------|------|
 | **B14** | No hosting/deploy config of any kind exists (no `fly.toml`/`render.yaml`/`Procfile`/CI workflow) — only a `Dockerfile`. The backend has never been deployed anywhere. | repo-wide (confirmed absent) | App Review cannot use the app at all in its current state — it points at `127.0.0.1`. |
 | **B15** | `CORSMiddleware` is configured with `allow_origins=["*"]` **and** `allow_credentials=True` simultaneously — a real misconfiguration (browsers/spec discourage this combination), and clearly a dev-only setting never locked down. | `app/main.py:26-31` | Security misconfiguration; must be scoped to the real production origin(s) before launch. |
-| **B16** | No rate limiting anywhere, on any route — most importantly on the OpenAI-calling routes (compounds B2). | repo-wide (`requirements.txt` has no rate-limit library) | Cost/abuse exposure with no ceiling. |
+| **B16** | ✅ **Partially fixed 2026-07-30.** `POST /games/submit-guess` now has `@limiter.limit("10/minute")` (slowapi, keyed by IP). Still no rate limiting on any other route. Uses slowapi's default in-memory storage — **not sufficient once the backend runs on more than one process/instance** (each instance tracks its own counter independently); revisit with a shared store (e.g. Redis) before scaling out. Also keyed by IP, not authenticated user, as a simplification — doesn't perfectly isolate abuse by one user across IPs or protect users sharing an IP/NAT. | `app/rate_limit.py`, `app/routers/games.py` | Cost/abuse exposure remains on every other route; the fixed route's protection weakens under multi-instance deployment. |
 | **B17** | No logging/error-tracking/alerting beyond stdout. Scheduler failures (B4/B5) are invisible unless someone manually checks logs. | repo-wide (no Sentry/structlog/etc.) | Nobody gets paged when the daily content pipeline breaks. |
 | **B18** | No `PrivacyInfo.xcprivacy` exists in the iOS app target. | confirmed absent, `Blipz/` | Apple requires this; App Store Connect submission will flag it. |
 | **B19** | No account-deletion flow exists anywhere in the iOS app (no settings screen, not even sign-out). | confirmed absent, `Blipz/Views/` | Apple App Review Guideline 5.1.1(v) requires in-app account deletion for apps that support account creation — anonymous Supabase accounts likely qualify. |
@@ -204,19 +205,25 @@ they block everything else:
 6. **B11** — non-consensual, unremovable friending. (Backend + iOS)
 7. **B15** — wildcard CORS + credentials. (Backend)
 8. **B17** — no alerting on scheduler failure. (Backend)
-9. **B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`. (Backend)
+9. ~~**B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`.~~
+   **✅ Fixed 2026-07-30** (Backend) — rate limiting still needed on other routes; see B16 above.
 10. **B4 + B5 + B7** — content pipeline has no retry/fallback/buffer. (Backend)
 
 ---
 
 ## 5. Recommended database/schema changes
 
-- Add `maths_completed`, `guess_completed`, `trivia_completed` boolean columns to `scores`,
-  set explicitly by each submit endpoint at the moment of a genuine first submission. Eliminates
-  the `score > 0` inference gap already documented in the iOS code (`TodayView.swift`).
-- Add a `submitted_at` timestamp per game field (or a separate per-attempt table) so "first
-  submission wins" can be enforced server-side (fixes B2) and so a real completion-time/history
-  model becomes possible later.
+- ✅ **Done 2026-07-30**: added `maths_completed`, `guess_completed`, `trivia_completed`
+  boolean columns to `scores` (plus `maths_elapsed_seconds`, `guess_text`,
+  `trivia_answers` for the Maths plausibility check, idempotent Guess replay, and
+  Trivia review respectively), set explicitly by `complete_game_attempt()` at the
+  moment of a genuine first completion and never overwritten after. This is a
+  **transitional design**, not the full `daily_game_attempts` table originally
+  sketched here — see the design-rationale note in `sql/migrations.sql` for why: the
+  leaderboard, streak, and Today/Profile read paths are all built around one flat
+  `scores` row per user/day, and reworking that aggregation was disproportionate churn
+  relative to what closing the actual security gap required. Revisit if per-attempt
+  history/analytics become a real product need later.
 - Consider a `friends` table `status` column (`pending`/`accepted`) to support a real
   request/accept flow (fixes B11), plus the missing `DELETE /friends/{id}` endpoint.
 - Add a `username` uniqueness/change audit if usernames become editable (fixes B13) —
@@ -258,8 +265,8 @@ Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra
 1. ~~**Fix B1 (answer leak)**~~ **✅ Done 2026-07-30** — Trivia's `answer` and Guess's
    `image_prompt` no longer appear in the public payload; the endpoint now requires auth.
    Maths' `answer` stays exposed by design (see rationale above).
-2. **Fix B2 + add submission guards** — reject/ignore resubmission once a game is completed
-   for the day (ties into the schema change in §5).
+2. ~~**Fix B2 + add submission guards**~~ **✅ Done 2026-07-30** — resubmission now
+   returns the original result instead of overwriting (see §5's schema change).
 3. **Deploy the backend** (fixes B14) — pick Fly.io/Render, wire the existing Dockerfile,
    move the scheduler to the platform's cron hitting the admin endpoint (fixes B5 for free).
 4. **Point iOS at the real backend URL** (fixes B20) — make it environment-driven, not hardcoded.
@@ -291,7 +298,9 @@ Before inviting external testers:
 - [ ] Backend is reachable at a real HTTPS URL from outside the local network (B14/B20)
 - [x] `GET /games/daily-content` no longer exposes Trivia's answer or Guess's
       image_prompt (B1, fixed 2026-07-30) — Maths' answer remains, by design
-- [ ] Each game can only be scored once per day per user, server-enforced (B2)
+- [x] Each game can only be scored once per day per user, server-enforced (B2, fixed
+      2026-07-30) — pending live verification of `tests/test_daily_attempt_enforcement.py`
+      once the migration is applied in this environment (currently skipped, not failing)
 - [ ] A missed/failed daily-content generation sends a real alert, not just a log line (B17)
 - [ ] Session-restore failure shows a real error/retry state, not a silently new identity (B8/B9)
 - [ ] CORS is no longer wildcard-open in whatever environment testers hit (B15)

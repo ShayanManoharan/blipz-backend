@@ -29,29 +29,43 @@ def parse_trivia_questions(trivia_text):
             raise ValueError(f"Could not parse trivia questions from model output: {trivia_text!r}")
         return json.loads(match.group())
 
-def generate_math_problems(count=20):
-    problems = []
-    operations = ['+', '-', '*', '/']
-    for _ in range(count):
-        op = random.choice(operations)
+MATH_OPERATIONS = ("add", "subtract", "multiply", "divide")
 
-        if op == '+':
-            a, b = random.randint(2, 100), random.randint(2, 100)
-            answer = a + b
-        elif op == '-':
-            a, b = random.randint(2, 100), random.randint(2, 100)
-            answer = a - b
-        elif op == '*':
-            a, b = random.randint(2, 12), random.randint(2, 100)
-            answer = a * b
-        elif op == '/':
-            b = random.randint(2, 12)
-            answer = random.randint(2, 100)
-            a = answer * b
+
+def compute_math_answer(left_operand, right_operand, operation):
+    if operation == "add":
+        return left_operand + right_operand
+    if operation == "subtract":
+        return left_operand - right_operand
+    if operation == "multiply":
+        return left_operand * right_operand
+    if operation == "divide":
+        return left_operand // right_operand
+    raise ValueError(f"Unknown math operation: {operation!r}")
+
+
+def generate_math_problems(count=20):
+    # Stores operands + operation rather than a rendered question string plus a
+    # separate answer key — the client (and compute_math_answer above, server-side)
+    # both derive the answer from the same two numbers instead of one side trusting a
+    # precomputed value that could drift. See PRODUCTION_AUDIT.md B1 follow-up.
+    problems = []
+    for _ in range(count):
+        operation = random.choice(MATH_OPERATIONS)
+
+        if operation in ("add", "subtract"):
+            left, right = random.randint(2, 100), random.randint(2, 100)
+        elif operation == "multiply":
+            left, right = random.randint(2, 12), random.randint(2, 100)
+        else:  # divide — keep it evenly divisible, same as before
+            right = random.randint(2, 12)
+            quotient = random.randint(2, 100)
+            left = quotient * right
 
         problems.append({
-            "question": f"{a} {op} {b}",
-            "answer": answer
+            "left_operand": left,
+            "right_operand": right,
+            "operation": operation,
         })
     return problems
 

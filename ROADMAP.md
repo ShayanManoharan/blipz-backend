@@ -12,6 +12,16 @@ answers — **B1, fixed 2026-07-30**, see the audit doc), the backend isn't host
 App Store requirements (account deletion, privacy manifest, consensual friending) are
 unimplemented. Read that before treating anything below as "launch-ready."
 
+**Attempt-integrity slice (2026-07-30):** one ranked attempt per user/game/day is now
+enforced server-side for all three games (B2/B16 fixed — see `PRODUCTION_AUDIT.md`),
+Quick Maths' public model changed from `{question, answer}` to `{left_operand,
+right_operand, operation}` so the client computes the answer locally instead of
+receiving a redundant key, and Trivia now has a post-completion review endpoint with
+green/red feedback restored on iOS. **Migration pending**: `sql/migrations.sql`'s
+latest block (scores.maths_completed etc.) needs to be run in Supabase before
+`tests/test_daily_attempt_enforcement.py` will actually execute (currently skipped,
+not failing) and before the live app can use any of this.
+
 ## Core gameplay
 
 - [x] Quick Maths — 20 rapid-fire arithmetic problems, server-graded (`games.py`, `MathGameView.swift`)

@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 PyJWT==2.13.0
 APScheduler==3.11.3
 pytest==9.1.1
+slowapi==0.1.10

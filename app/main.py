@@ -9,6 +9,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi.errors import RateLimitExceeded
+from slowapi import _rate_limit_exceeded_handler
+from app.rate_limit import limiter
 from app.routers import games, leaderboard, friends, users
 from app.scheduler import start_scheduler, stop_scheduler
 
@@ -21,6 +24,9 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Blipz API", description="API for Blipz game", version="1.0.0", lifespan=lifespan)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,

@@ -5,6 +5,7 @@
 from datetime import date
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.auth import get_current_user_id
@@ -17,6 +18,23 @@ from app.main import app
 # user and clean up the row they create/modify afterward rather than a fake UUID.
 TEST_USER_ID = "00000000-0000-0000-0000-000000000000"
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
+
+
+def _migration_applied() -> bool:
+    try:
+        supabase.table("scores").select("maths_completed").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+
+# The two submit-* tests below now go through complete_game_attempt() (see B2's
+# follow-up fix), which writes guess_text/trivia_answers columns that only exist once
+# sql/migrations.sql's latest block has been applied.
+requires_migration = pytest.mark.skipif(
+    not _migration_applied(),
+    reason="scores.maths_completed etc. not present — run sql/migrations.sql's latest block first",
+)
 
 
 def _cleanup_scores_row(user_id: str):
@@ -96,15 +114,17 @@ def test_daily_content_shape_matches_ios_decodable_model():
     body = response.json()
     assert set(body.keys()) == {"id", "date", "image_url", "math_problems", "trivia_questions"}
     for problem in body["math_problems"]:
-        assert set(problem.keys()) == {"question", "answer"}
+        assert set(problem.keys()) == {"left_operand", "right_operand", "operation"}
     for question in body["trivia_questions"]:
         assert set(question.keys()) == {"question", "category", "options"}
 
 
+@requires_migration
 @patch("app.routers.games.score_guess")
 def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_score_guess):
     mock_score_guess.return_value = 5.0
 
+    _cleanup_scores_row(REAL_TEST_USER_ID)
     app.dependency_overrides[get_current_user_id] = lambda: REAL_TEST_USER_ID
     try:
         with TestClient(app) as client:
@@ -127,10 +147,12 @@ def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_
     assert called_prompt != "a fake client-supplied prompt"
 
 
+@requires_migration
 def test_submit_trivia_has_no_client_supplied_correctness_field():
     # TriviaScoreSubmit only ever accepts `answers: list[str]` — there is no field for
     # a client to assert its own correctness/score, so grading is structurally always
     # server-side. This test also confirms the endpoint still works after the fix.
+    _cleanup_scores_row(REAL_TEST_USER_ID)
     app.dependency_overrides[get_current_user_id] = lambda: REAL_TEST_USER_ID
     try:
         with TestClient(app) as client:
