@@ -103,6 +103,40 @@ pass: real result-reveal confetti/particle effects, a proper avatar/photo system
 avatars are currently generated initials), and persisting Quick Maths' elapsed time
 server-side if speed should ever factor into leaderboard ranking.
 
+## Navigation restructuring — "Today" hub (2026-07-29)
+
+Tabs changed from Maths/Guess/Trivia/Leaderboard/Profile to **Today/Leaderboard/Friends/Profile**.
+Friends is now a first-class tab (was previously only reachable via a NavigationLink from
+Leaderboard's toolbar — that link was removed as redundant now that it's a tab; no
+FriendsViewModel/logic was duplicated, just relocated in the tab list).
+
+- [x] New `TodayView.swift`: daily header (title + date + streak, no reset countdown —
+      the backend's day boundary is server-local time with no timezone exposed to the
+      client, so there's no real data to count down against), an animated
+      "X of 3 completed" progress bar, a prominent hero card for AI Prompt Guess (image
+      preview, status, CTA), Quick Maths + Daily Trivia cards below (side-by-side on
+      `.regular` horizontal size class, stacked otherwise), a "Today's Total" card using
+      `profile.totalScore` exactly as the backend computes it, and a share section that
+      gets a stronger "All three completed!" treatment once all 3 games are done (no
+      confetti, per constraint).
+- [x] Zero changes to `MathGameView`, `GuessGameView`, `TriviaGameView`, or their view
+      models — Today pushes them via plain `NavigationLink` + `.toolbar(.hidden, for:
+      .tabBar)` (hides the tab bar during gameplay for a focused feel; back button reads
+      "< Today" since `TodayView` sets `.navigationTitle("Today")`).
+- **Completion derivation** (documented limitation, not fabricated): Maths uses
+  `mathsScore == 20`, a reliable signal since the stopwatch rework guarantees anyone who
+  finishes has exactly 20/20. Guess/Trivia use `score > 0` — the only signal that
+  exists — which misclassifies a genuine exact-0.0 score as "not played" (rare edge
+  case, not the common case). There is no persisted "in progress" state anywhere in the
+  backend, so Today only ever shows "Not played" vs. "Completed," never "In progress."
+- **Verified in the simulator**: 0-of-3 (real, clean state), 1-of-3, 2-of-3, and 3-of-3
+  (including the "All three completed!" share card) by writing/cleaning up real `scores`
+  rows for the actual anonymous user behind this simulator install (not fabricated
+  data — a genuine `auth.users`-backed account). Also verified iPhone 16e (small device)
+  and `accessibility-extra-large` text on iPhone 16e (hardest combination) — layout
+  reflows and wraps without clipping. Verified Leaderboard, Friends, and Profile still
+  work correctly as standalone tabs post-restructuring.
+
 ## Hardening (pre-launch)
 
 - [x] `pytest` smoke tests for backend routes/agents (`tests/`: root + `/games/test` routes,
