@@ -173,6 +173,35 @@ cards. State system tightened to exactly what the data can prove.
   is code-review confidence (a standard `NavigationLink` pointed at an already-working
   screen), not interactive confirmation.
 
+### Follow-up polish pass (2026-07-30)
+
+Second round based on further design feedback — same structure/layout/nav, visual-only:
+
+- [x] Distinct per-game accent colors (`TodayAccent`): Guess stays violet/indigo,
+      Maths is electric blue, Trivia is warm amber — applied to icons, borders, and
+      "Ready"/"Play" tints so the three widgets read as separate games instead of one
+      repeated lavender block. Completed always uses the same soft green regardless of
+      game, per spec.
+- [x] Progress indicator rebuilt as `DailyProgressTracker`: three icon nodes joined by a
+      thin track line (not a shared pill/segmented-control shape), so it can't be
+      mistaken for a tappable filter.
+- [x] Hero image placeholder now shows a sparkle icon + "Generating today's Blip…"
+      copy while genuinely loading (no caption on a load failure, since it already
+      tried and isn't "generating" anymore).
+- [x] Compact Maths/Trivia widgets get a filled "Play"/"Completed" capsule as the primary
+      affordance instead of relying on a small chevron.
+- [x] Total/share section is now state-aware instead of a flat "0.0": "Play a game to
+      get started" at zero, the real total once 1-2 games are done, and a single
+      unified "Daily Blipz complete" + prominent share button at 3-of-3 (previously this
+      was two separate cards with redundant "All three completed!" text).
+- [x] Wording de-duplicated: page header is now "Today" (was "Today's Blipz"), hero
+      label is "DAILY AI GUESS" (was "TODAY'S BLIP") — no more repeated "Blip"/"Blipz".
+- **Verified live**: 0-of-3 and all-3 states on iPhone 17 Pro, 0-of-3 on iPhone 16e
+  (one-screen fit reconfirmed with the new tracker/spacing). Did not re-run the full
+  Accessibility Extra Large / Reduce Motion pass this round since those code paths
+  (`dynamicTypeSize.isAccessibilitySize`, `reduceMotion` guards) were untouched —
+  only colors and copy changed.
+
 ## Hardening (pre-launch)
 
 - [x] `pytest` smoke tests for backend routes/agents (`tests/`: root + `/games/test` routes,
