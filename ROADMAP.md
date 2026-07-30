@@ -22,6 +22,15 @@ latest block (scores.maths_completed etc.) needs to be run in Supabase before
 `tests/test_daily_attempt_enforcement.py` will actually execute (currently skipped,
 not failing) and before the live app can use any of this.
 
+**Pre-production follow-up (B23, not yet implemented):** the Guess submit path still has
+a narrow true-concurrency window where more than one request can call OpenAI before either
+writes its result (only one result is ever persisted — no duplicate scores or storage
+corruption — but the OpenAI-cost bound isn't as tight as it could be). Before launch, change
+`submit_guess` to atomically reserve the day's Guess attempt *before* calling OpenAI (e.g. an
+atomic conditional insert/update on the reservation state), so only the request that wins the
+reservation may call the API at all, and concurrent losers wait for or return the stored/
+in-flight result instead of racing to call OpenAI themselves. See `PRODUCTION_AUDIT.md` B23.
+
 ## Core gameplay
 
 - [x] Quick Maths — 20 rapid-fire arithmetic problems, server-graded (`games.py`, `MathGameView.swift`)
