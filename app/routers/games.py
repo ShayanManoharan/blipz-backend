@@ -7,7 +7,10 @@ from app.agents.content_generator import generate_daily_content
 from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
-from app.models.schemas import MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit
+from app.models.schemas import (
+    MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit,
+    PublicDailyContentResponse, PublicMathProblem, PublicTriviaQuestion,
+)
 from datetime import date, timedelta
 
 router = APIRouter()
@@ -78,13 +81,27 @@ async def trigger_daily_content():
     result = await generate_daily_content()
     return result
 
-@router.get("/daily-content")
-def get_daily_content():
+@router.get("/daily-content", response_model=PublicDailyContentResponse)
+def get_daily_content(user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
     result = supabase.table("daily_content").select("*").eq("date", today).execute()
     if not result.data:
-        return {"message": "No content generated yet for today"}
-    return result.data[0]
+        raise HTTPException(status_code=404, detail="No content generated yet for today")
+
+    row = result.data[0]
+    return PublicDailyContentResponse(
+        id=row["id"],
+        date=row["date"],
+        image_url=row["image_url"],
+        math_problems=[
+            PublicMathProblem(question=p["question"], answer=p["answer"])
+            for p in row["math_problems"]
+        ],
+        trivia_questions=[
+            PublicTriviaQuestion(question=q["question"], category=q["category"], options=q["options"])
+            for q in row["trivia_questions"]
+        ],
+    )
 
 @router.post("/submit-guess")
 async def submit_guess(body: GuessScoreSubmit, user_id: str = Depends(get_current_user_id)):
