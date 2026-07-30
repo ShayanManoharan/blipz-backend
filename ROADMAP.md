@@ -121,8 +121,8 @@ FriendsViewModel/logic was duplicated, just relocated in the tab list).
       confetti, per constraint).
 - [x] Zero changes to `MathGameView`, `GuessGameView`, `TriviaGameView`, or their view
       models — Today pushes them via plain `NavigationLink` + `.toolbar(.hidden, for:
-      .tabBar)` (hides the tab bar during gameplay for a focused feel; back button reads
-      "< Today" since `TodayView` sets `.navigationTitle("Today")`).
+      .tabBar)` (hides the tab bar during gameplay for a focused feel). The nav title
+      was later removed in the widget-dashboard redesign below (see that entry).
 - **Completion derivation** (documented limitation, not fabricated): Maths uses
   `mathsScore == 20`, a reliable signal since the stopwatch rework guarantees anyone who
   finishes has exactly 20/20. Guess/Trivia use `score > 0` — the only signal that
@@ -136,6 +136,42 @@ FriendsViewModel/logic was duplicated, just relocated in the tab list).
   and `accessibility-extra-large` text on iPhone 16e (hardest combination) — layout
   reflows and wraps without clipping. Verified Leaderboard, Friends, and Profile still
   work correctly as standalone tabs post-restructuring.
+
+## Today hub — visual rebuild to "widget dashboard" (2026-07-29)
+
+Redesigned the *existing* `TodayView` in place (no new screen, no architecture change)
+to fit as one compact widget-style dashboard instead of a scrolling stack of white
+cards. State system tightened to exactly what the data can prove.
+
+- [x] `DailyGameCardState` reduced to `.ready` / `.completed` only — no "in progress"
+      case exists anywhere, matching the fact that nothing about an incomplete attempt
+      is ever persisted.
+- [x] Completion logic centralized as three computed properties on `TodayView`
+      (`isMathsCompleted`, `isGuessCompleted`, `isTriviaCompleted`), each with an inline
+      comment marking Guess/Trivia's `score > 0` heuristic as a placeholder for future
+      explicit `guess_completed`/`trivia_completed` backend fields (backend untouched
+      this pass, per instruction).
+- [x] Removed the redundant "Today" nav title + "Today's Blipz" double-heading (now
+      one compact header), replaced the gray "Not played" pill with a colorful
+      violet/indigo "Ready" treatment and a soft-green "Completed" treatment (never
+      fully green), added a 3-segment Guess/Maths/Trivia progress indicator with
+      animated checkmarks, and gave the hero image a branded shimmer placeholder
+      instead of a flat gray box.
+- [x] Fits above the tab bar without scrolling at default text size on both iPhone 16e
+      and iPhone 17 Pro (header + progress + hero + both compact widgets all visible;
+      Today's Total sits just below, share section may need a small scroll — no
+      simulated iPhone SE exists in this environment, iPhone 16e is the smallest
+      available and stood in for "smaller supported iPhone").
+- [x] Reduce Motion respected (shimmer and press-scale animations are skipped, not just
+      shortened); Maths/Trivia stack vertically instead of side-by-side once
+      `dynamicTypeSize.isAccessibilitySize` is true.
+- **Verified live** for all 6 requested states (0-of-3, Guess-only, Maths-only,
+  Trivia-only, 2-of-3, all-3) by writing/cleaning up real `scores` rows for the actual
+  simulator account, plus iPhone 16e default size and iPhone 16e at
+  `accessibility-extra-large`. **Not verified**: actually tapping a card to confirm the
+  `NavigationLink` push — no tap-simulation tool is available in this session, so this
+  is code-review confidence (a standard `NavigationLink` pointed at an already-working
+  screen), not interactive confirmation.
 
 ## Hardening (pre-launch)
 
