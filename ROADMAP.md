@@ -6,6 +6,12 @@ source of truth for "what's next," so keep it current rather than trusting memor
 
 Legend: `[x]` done and verified · `[~]` partially done (see note) · `[ ]` not started
 
+**Production/App Store readiness:** see `PRODUCTION_AUDIT.md` (2026-07-30) — a full
+security/reliability audit found the game scoring is currently exploitable (public endpoint
+leaks answers), the backend isn't hosted, and several App Store requirements (account
+deletion, privacy manifest, consensual friending) are unimplemented. Read that before treating
+anything below as "launch-ready."
+
 ## Core gameplay
 
 - [x] Quick Maths — 20 rapid-fire arithmetic problems, server-graded (`games.py`, `MathGameView.swift`)

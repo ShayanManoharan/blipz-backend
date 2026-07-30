@@ -1,0 +1,294 @@
+# Blipz Production & App Store Readiness Audit
+
+**Date:** 2026-07-30
+**Scope:** `blipz-backend` (FastAPI) + `blipz-ios/Blipz` (SwiftUI)
+**Method:** Direct code inspection with file/line citations. Nothing below is speculative —
+every finding was verified by reading the actual code, running `pytest`, checking `git`
+history/`.gitignore`, or testing the live local server. Where something couldn't be verified
+from code (e.g. Supabase dashboard access policy), that's stated explicitly rather than guessed.
+
+This document does not implement fixes — per instruction, it's audit + roadmap only.
+
+---
+
+## 1. Current architecture
+
+```mermaid
+flowchart TB
+    subgraph iOS["iOS App (SwiftUI)"]
+        AuthMgr[AuthManager]
+        APIClient
+        Views["Today / Maths / Guess / Trivia / Leaderboard / Friends / Profile"]
+    end
+
+    subgraph Backend["FastAPI Backend — local uvicorn only, not hosted"]
+        Auth["app/auth.py — JWT verify via Supabase JWKS"]
+        Routers["games / leaderboard / friends / users routers"]
+        Agents["content_generator / guess_scorer / leaderboard_narrator"]
+        Scheduler["APScheduler — midnight cron, in-memory, no persistence"]
+    end
+
+    subgraph Supabase
+        SupaAuth["Supabase Auth (anonymous sessions)"]
+        DB[("Postgres: users, scores, friends, daily_content")]
+        Storage[("Storage: daily images")]
+    end
+
+    subgraph OpenAI
+        GPT["gpt-4o-mini: image prompt, trivia, guess scoring"]
+        DALLE["gpt-image-1: daily image"]
+    end
+
+    Views --> APIClient
+    AuthMgr <-->|"anonymous sign-in, session, JWT"| SupaAuth
+    APIClient -->|"Bearer JWT (or none — see finding B1)"| Auth
+    Auth --> Routers
+    Routers -->|"secret/service-role key — bypasses RLS entirely"| DB
+    Routers --> Storage
+    Agents --> GPT
+    Agents --> DALLE
+    Agents --> DB
+    Agents --> Storage
+    Scheduler -->|"fires only if the process is running at 00:00 local"| Agents
+```
+
+**Key architectural fact:** the backend authenticates every request via `app/auth.py`
+(Supabase JWT verification), then talks to Postgres with the **secret/service-role key**
+(`app/database.py`), which bypasses Row-Level Security entirely. This means **RLS policies on
+`users`/`scores`/`friends`/`daily_content` provide zero real protection today** — the actual
+(and only) security boundary is the FastAPI auth + authorization layer. This is fine *as long
+as the iOS app never talks to Supabase directly* — confirmed it currently doesn't (all iOS
+network calls go through `APIClient` → the FastAPI backend).
+
+---
+
+## 2. Data flow per game
+
+### Quick Maths — answers are leaked before play (see B1)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as FastAPI
+    participant DB as Supabase
+
+    Client->>API: GET /games/daily-content (no auth required)
+    API->>DB: select * from daily_content where date=today
+    DB-->>API: row incl. math_problems[].answer, in plaintext
+    API-->>Client: full row, answers included ⚠️
+    Note over Client: A client can read every answer before playing at all
+    Client->>API: POST /games/submit-maths {answers}
+    API->>DB: re-fetch math_problems
+    API->>API: grade answers[i] == problem.answer (server-side, correctly)
+    API->>DB: upsert scores row — overwrite allowed, no per-day cap
+    API-->>Client: {correct, total}
+```
+
+The grading logic itself is correct (server computes correctness, doesn't trust a
+client-sent score) — the leak is entirely in what `GET /games/daily-content` exposes.
+
+### Daily Trivia — identical leak
+
+Same shape as above; `trivia_questions[].answer` is returned in the same public,
+unauthenticated payload (`app/routers/games.py:81-87`).
+
+### AI Prompt Guess — the answer *and* an unlimited re-roll
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as FastAPI
+    participant DB as Supabase
+    participant AI as OpenAI
+
+    Client->>API: GET /games/daily-content
+    DB-->>API: row incl. image_prompt (the literal answer)
+    API-->>Client: full row, image_prompt included ⚠️
+    Client->>API: POST /games/submit-guess {guess} (repeatable, no cap)
+    API->>DB: fetch image_prompt again
+    API->>AI: score_guess(guess, image_prompt) — real $ per call
+    AI-->>API: score (LLM judge, non-deterministic)
+    API->>DB: upsert — overwrites previous guess_score every time
+    API-->>Client: {score}
+    Note over Client,AI: Client can submit image_prompt verbatim as its own "guess,"<br/>or spam-resubmit to re-roll a better score — each call costs real OpenAI $
+```
+
+---
+
+## 3. Threat & failure-mode analysis
+
+### Critical: game integrity is currently broken
+
+| ID | Finding | File | Risk |
+|----|---------|------|------|
+| **B1** | `GET /games/daily-content` is **fully unauthenticated** and returns `math_problems[].answer`, `trivia_questions[].answer`, and `image_prompt` (the Guess answer) in plaintext, before the user has played. | `app/routers/games.py:81-87`, `app/agents/content_generator.py` | A script can fetch this once and submit a perfect score for Maths/Trivia without ever opening the app. Guess is harder to fully automate but the prompt leak alone lets a player submit the exact answer text. **This breaks the entire leaderboard/streak system's integrity.** |
+| **B2** | `submit_guess` has no per-day cap and `upsert_score`'s update path unconditionally overwrites `guess_score` on every call — no "first submission wins" guard. | `app/routers/games.py` (`submit_guess`, `upsert_score`) | Unlimited real OpenAI API calls per user per day (cost exposure) *and* a re-roll exploit (spam until you get a good score, since the LLM judge isn't perfectly deterministic). |
+| **B3** | Guess scoring interpolates the raw player-supplied guess text directly into the LLM prompt with no delimiter/sanitization. | `app/agents/guess_scorer.py:44` | Prompt-injection vector — a crafted guess could attempt to manipulate the judge into returning a maximal score. |
+
+### Daily content pipeline
+
+| ID | Finding | File | Risk |
+|----|---------|------|------|
+| **B4** | No retry, fallback, or alerting if any of the 3 sequential OpenAI calls in `generate_daily_content()` fails (timeout, content-policy refusal, malformed response exhausting the existing regex fallback). Scheduler catches the exception and only logs it — no re-schedule, no notification. | `app/agents/content_generator.py`, `app/scheduler.py:21-22` | A single OpenAI hiccup leaves **the entire day broken for every user**, with nobody aware until someone notices manually (as happened during this session's own testing). |
+| **B5** | `AsyncIOScheduler` uses the default in-memory job store with no misfire/catch-up handling. If the process isn't running at exactly 00:00 local (machine asleep, deploy in progress, crash), the job simply never fires — confirmed directly this session. | `app/scheduler.py` | Same failure mode as B4, triggered by infrastructure rather than OpenAI. |
+| **B6** | No content moderation step before publishing the AI-generated image/prompt to all users. | `app/agents/content_generator.py` | OpenAI's own image-gen safety system provides some protection (surfaces as B4's failure mode if triggered), but there's no app-level review/reporting mechanism — likely an App Review question for AI-generated user-facing content. |
+| **B7** | No pre-generation buffer — content is generated synchronously, exactly at the deadline, with real OpenAI calls sitting in the critical path. | `app/scheduler.py` (`CronTrigger(hour=0, minute=0)`) | No margin for retry between failure and the day's release; compounds B4/B5. |
+
+### Authentication & identity
+
+| ID | Finding | File | Risk |
+|----|---------|------|------|
+| **B8** | `signInIfNeeded()` uses `try?` around session restoration; if the stored session fails to restore/refresh for *any* reason (revoked refresh token, Keychain wipe, device restore — not just reinstall), it silently falls through to `signInAnonymously()`, minting a **brand-new identity**. There is no account-linking/upgrade flow anywhere. | `Blipz/Services/AuthManager.swift:19-28` | Permanent, silent loss of streak/scores/friends with no warning and no recovery path. This is the single biggest identity-durability risk in the app. |
+| **B9** | If sign-in fails entirely, `isReady = true` still executes unconditionally, so the app renders `MainTabView` with no valid session — every API call then fails with an opaque `"Unknown server error"`. | `AuthManager.swift:27`, `APIClient.swift:38-42` | Broken app state with no retry UI, would look like a crash-adjacent bug to App Review or real users. |
+| **B10** | JWT verification itself is done correctly (real JWKS, explicit `ES256` allowlist, audience check) — **no finding here**, called out so it's not mistaken for a gap. | `app/auth.py:17,31-32` | — |
+
+### Social features
+
+| ID | Finding | File | Risk |
+|----|---------|------|------|
+| **B11** | Adding a friend is unilateral — no request/accept step, no notification, and **no unfriend/block endpoint exists at all**. Any user can add anyone (if they know/guess the username) and permanently see that person's daily scores. | `app/routers/friends.py` (only `/add` and `/list` exist) | Non-consensual visibility relationship with no removal path — a real privacy problem and a plausible App Review rejection reason for social features. |
+| **B12** | Add-friend returns 404 for unknown usernames vs 200 for known ones, allowing username enumeration; compounds B11. | `app/routers/friends.py:13-15` | Low-effort scraping of which users exist, then friending/viewing them. |
+| **B13** | No endpoint anywhere lets a user change their username — permanently stuck with the auto-generated `guest_XXXXXXXX` handle. | confirmed absent in `app/routers/users.py`, `friends.py` | Product gap that meaningfully hurts a social/leaderboard-driven app (nobody wants to be "guest_d366ce2a" forever). |
+
+### Operational readiness
+
+| ID | Finding | File | Risk |
+|----|---------|------|------|
+| **B14** | No hosting/deploy config of any kind exists (no `fly.toml`/`render.yaml`/`Procfile`/CI workflow) — only a `Dockerfile`. The backend has never been deployed anywhere. | repo-wide (confirmed absent) | App Review cannot use the app at all in its current state — it points at `127.0.0.1`. |
+| **B15** | `CORSMiddleware` is configured with `allow_origins=["*"]` **and** `allow_credentials=True` simultaneously — a real misconfiguration (browsers/spec discourage this combination), and clearly a dev-only setting never locked down. | `app/main.py:26-31` | Security misconfiguration; must be scoped to the real production origin(s) before launch. |
+| **B16** | No rate limiting anywhere, on any route — most importantly on the OpenAI-calling routes (compounds B2). | repo-wide (`requirements.txt` has no rate-limit library) | Cost/abuse exposure with no ceiling. |
+| **B17** | No logging/error-tracking/alerting beyond stdout. Scheduler failures (B4/B5) are invisible unless someone manually checks logs. | repo-wide (no Sentry/structlog/etc.) | Nobody gets paged when the daily content pipeline breaks. |
+| **B18** | No `PrivacyInfo.xcprivacy` exists in the iOS app target. | confirmed absent, `Blipz/` | Apple requires this; App Store Connect submission will flag it. |
+| **B19** | No account-deletion flow exists anywhere in the iOS app (no settings screen, not even sign-out). | confirmed absent, `Blipz/Views/` | Apple App Review Guideline 5.1.1(v) requires in-app account deletion for apps that support account creation — anonymous Supabase accounts likely qualify. |
+| **B20** | `Config.swift` hardcodes `apiBaseURL = http://127.0.0.1:8000`. | `Blipz/Services/Config.swift:8` | Any TestFlight/App Review build currently points at a dead loopback address — compounds B14. |
+| **B21** | iOS deployment target is `IPHONEOS_DEPLOYMENT_TARGET = 26.0` with no code dependency found that requires it. | `project.pbxproj` | Needlessly excludes the large majority of real-world iOS users for a v1.0 launch. |
+| **B22** | Daily reset boundary is still server-local time with no explicit timezone anywhere (`date.today()`), a known gap noted in earlier planning and never resolved. | `app/routers/games.py`, `app/agents/content_generator.py` | For real users across timezones, "today" resets at an arbitrary, undocumented moment — affects fairness and the (currently absent, correctly so) reset-countdown UI. |
+
+### Confirmed non-issues (checked, no finding)
+
+- OpenAI key never reaches the client or logs — clean (`app/config.py`, grep for key patterns).
+- No hardcoded secrets in the iOS app beyond the intentional public Supabase key (`Config.swift`).
+- No SQL injection surface — everything goes through the parameterized supabase-py query builder.
+- No over-exposure of private fields (email, etc.) to other users via leaderboard/friends.
+- `.env` is correctly gitignored and has never been committed (`git log --all -- .env` empty).
+- Global leaderboard is already capped (`LIMIT 50`) — not an unbounded-fetch risk.
+- Friends-leaderboard authorization correctly scopes to the requesting user's own `user_id` from the verified JWT — no cross-user data leak found there.
+
+---
+
+## 4. App Store release-blocker list
+
+These must be fixed before any TestFlight/App Review submission, in rough order of how much
+they block everything else:
+
+1. **B1** — public endpoint leaks all three games' answers. (Backend)
+2. **B14 + B20** — no hosted backend; app points at localhost. (Deployment + iOS)
+3. **B19** — no account-deletion flow. (iOS + Backend)
+4. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
+5. **B8** — silent identity loss on session-restore failure, no recovery. (iOS)
+6. **B11** — non-consensual, unremovable friending. (Backend + iOS)
+7. **B15** — wildcard CORS + credentials. (Backend)
+8. **B17** — no alerting on scheduler failure. (Backend)
+9. **B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`. (Backend)
+10. **B4 + B5 + B7** — content pipeline has no retry/fallback/buffer. (Backend)
+
+---
+
+## 5. Recommended database/schema changes
+
+- Add `maths_completed`, `guess_completed`, `trivia_completed` boolean columns to `scores`,
+  set explicitly by each submit endpoint at the moment of a genuine first submission. Eliminates
+  the `score > 0` inference gap already documented in the iOS code (`TodayView.swift`).
+- Add a `submitted_at` timestamp per game field (or a separate per-attempt table) so "first
+  submission wins" can be enforced server-side (fixes B2) and so a real completion-time/history
+  model becomes possible later.
+- Consider a `friends` table `status` column (`pending`/`accepted`) to support a real
+  request/accept flow (fixes B11), plus the missing `DELETE /friends/{id}` endpoint.
+- Add a `username` uniqueness/change audit if usernames become editable (fixes B13) —
+  confirm the existing `UNIQUE` constraint semantics are preserved.
+- Longer-term (not a blocker): a per-attempt table (`user_id, daily_content_id, game_type,
+  started_at, completed_at, score`) for real analytics and anti-cheat signal, as originally
+  suggested.
+
+---
+
+## 6. Recommended hosted deployment architecture
+
+Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra investment):
+
+- **Backend hosting:** Fly.io or Render — both have a straightforward path from the existing
+  `Dockerfile`, support secrets management (env vars, not baked into the image), and offer
+  basic health checks. Either is a reasonable choice; pick based on whichever the team already
+  has familiarity with. Add a `HEALTHCHECK` to the Dockerfile and stop running as root (fixes
+  part of the Dockerfile finding).
+- **Scheduler reliability:** move the midnight job off in-process `APScheduler` (which dies
+  with the process) to the hosting platform's own cron/scheduled-job feature hitting the
+  existing admin-token-protected `POST /games/generate-daily-content` endpoint. This alone
+  fixes B5 without any application code change — the endpoint already exists and is
+  authenticated correctly.
+- **Environment separation:** introduce an `ENVIRONMENT` setting (`development`/`production`)
+  in `app/config.py`, and branch `CORSMiddleware`'s `allow_origins` off it (fixes B15) — allow
+  `*` only in development, a real allowlist (App Store app's origin isn't applicable here since
+  it's a native app calling a fixed API host, so this mainly matters for any web/admin surface).
+- **Observability:** add Sentry (or similar) for exception tracking on both the API routes and
+  the scheduler job specifically — the scheduler's existing `logger.exception()` call is the
+  natural hook point (fixes B17).
+- **Secrets:** move `OPENAI_API_KEY`, `SUPABASE_SECRET_KEY`, `ADMIN_TOKEN` into the hosting
+  platform's secret manager rather than a shipped `.env` (still fine for local dev).
+
+---
+
+## 7. Ordered implementation roadmap
+
+1. **Fix B1 (answer leak)** — strip `answer`/`image_prompt` fields from `GET
+   /games/daily-content`'s public payload; grading endpoints already fetch `daily_content`
+   server-side independently, so this requires no change to the grading logic itself.
+2. **Fix B2 + add submission guards** — reject/ignore resubmission once a game is completed
+   for the day (ties into the schema change in §5).
+3. **Deploy the backend** (fixes B14) — pick Fly.io/Render, wire the existing Dockerfile,
+   move the scheduler to the platform's cron hitting the admin endpoint (fixes B5 for free).
+4. **Point iOS at the real backend URL** (fixes B20) — make it environment-driven, not hardcoded.
+5. **Lock down CORS** (fixes B15) once a real environment split exists.
+6. **Add account deletion** (fixes B19) — iOS settings entry point + backend endpoint that
+   removes/anonymizes the user's rows across `users`/`scores`/`friends`.
+7. **Add `PrivacyInfo.xcprivacy`** (fixes B18) reflecting the actual data collected (User ID,
+   username, scores) — straightforward now that the data model is well understood.
+8. **Fix identity durability** (B8/B9) — surface a real error/retry UI instead of silently
+   minting a new identity; account-linking is a bigger future project, but at minimum stop the
+   silent data loss.
+9. **Friends: add accept/decline + unfriend** (fixes B11/B12).
+10. **Add basic rate limiting** (fixes B16) on `submit-guess` at minimum.
+11. **Add Sentry/error tracking** (fixes B17) for the scheduler and API.
+12. **Content pipeline hardening** (B4/B6/B7) — pre-generate a few hours early, add a retry
+    with backoff, add a minimal moderation check before publish.
+13. **Lower iOS deployment target** (fixes B21) unless a specific API dependency is found.
+14. **Decide and document the daily-reset timezone** (fixes B22) — likely UTC, needs an
+    explicit decision recorded, not just left implicit.
+15. **Username editability** (fixes B13) — product improvement, not a blocker, but cheap
+    relative to its value once the account model is otherwise stable.
+
+---
+
+## 8. Suggested TestFlight acceptance criteria
+
+Before inviting external testers:
+
+- [ ] Backend is reachable at a real HTTPS URL from outside the local network (B14/B20)
+- [ ] `GET /games/daily-content` no longer exposes any answer field (B1)
+- [ ] Each game can only be scored once per day per user, server-enforced (B2)
+- [ ] A missed/failed daily-content generation sends a real alert, not just a log line (B17)
+- [ ] Session-restore failure shows a real error/retry state, not a silently new identity (B8/B9)
+- [ ] CORS is no longer wildcard-open in whatever environment testers hit (B15)
+- [ ] Basic rate limiting exists on `submit-guess` (B16)
+
+## 9. Suggested App Store submission checklist
+
+- [ ] `PrivacyInfo.xcprivacy` present and accurate (B18)
+- [ ] In-app account deletion implemented and tested end-to-end (B19)
+- [ ] Friends require some form of consent, and can be removed (B11)
+- [ ] Privacy policy URL set in App Store Connect and reachable
+- [ ] Deployment target reviewed for real-world device coverage (B21)
+- [ ] App Review can complete the full daily loop (sign in → play all 3 → leaderboard →
+      friends → profile) against the live production backend
+- [ ] Screenshots, description, keywords, support URL prepared (currently not started)
+- [ ] Content-moderation/reporting story documented for the AI-generated daily image (B6)
