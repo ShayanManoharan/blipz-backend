@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user_id
 from app.database import supabase
 from app.main import app
+from app.rate_limit import limiter
 from app.routers.games import GUESS_SCORING_STALE_AFTER_SECONDS
 
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
@@ -50,8 +51,10 @@ def _cleanup():
 @pytest.fixture(autouse=True)
 def _clean_before_and_after():
     _cleanup()
+    limiter.reset()
     yield
     _cleanup()
+    limiter.reset()
     app.dependency_overrides.pop(get_current_user_id, None)
 
 
