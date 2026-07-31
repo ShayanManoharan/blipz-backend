@@ -113,3 +113,19 @@ UPDATE scores SET trivia_completed = TRUE WHERE trivia_score > 0;
 -- answer key. Any daily_content row generated before this change keeps the old shape
 -- and will fail to grade correctly against the new code — regenerate today's content
 -- (POST /games/generate-daily-content) after applying this migration and deploying.
+
+-- B23 fix: closes the Guess concurrency-cost window (see PRODUCTION_AUDIT.md B23/B2) —
+-- two simultaneous first-time Guess submissions could previously both call OpenAI
+-- before complete_game_attempt's compare-and-swap ensured only one result was ever
+-- persisted. guess_status/guess_scoring_started_at let the backend atomically reserve
+-- the right to call OpenAI at all, so a concurrent request never independently starts
+-- its own scoring call. See app/routers/games.py's acquire_guess_scoring_slot().
+ALTER TABLE scores
+  ADD COLUMN IF NOT EXISTS guess_status TEXT NOT NULL DEFAULT 'not_started'
+    CHECK (guess_status IN ('not_started', 'scoring', 'completed', 'failed')),
+  ADD COLUMN IF NOT EXISTS guess_scoring_started_at TIMESTAMPTZ;
+
+-- One-time backfill so already-completed rows read as 'completed' rather than the
+-- column default — purely cosmetic/consistency, guess_completed remains the actual
+-- source of truth for "is Guess done" everywhere in the application.
+UPDATE scores SET guess_status = 'completed' WHERE guess_completed = TRUE;

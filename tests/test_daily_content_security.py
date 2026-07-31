@@ -37,6 +37,22 @@ requires_migration = pytest.mark.skipif(
 )
 
 
+def _guess_status_migration_applied() -> bool:
+    try:
+        supabase.table("scores").select("guess_status").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+
+# submit_guess unconditionally reads/writes guess_status/guess_scoring_started_at now
+# (see PRODUCTION_AUDIT.md B23's fix).
+requires_guess_status_migration = pytest.mark.skipif(
+    not _guess_status_migration_applied(),
+    reason="scores.guess_status not present — run sql/migrations.sql's latest block first",
+)
+
+
 def _cleanup_scores_row(user_id: str):
     today = date.today().isoformat()
     supabase.table("scores").delete().eq("user_id", user_id).eq("date", today).execute()
@@ -123,6 +139,7 @@ def test_daily_content_shape_matches_ios_decodable_model():
 
 
 @requires_migration
+@requires_guess_status_migration
 @patch("app.routers.games.score_guess")
 def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_score_guess):
     mock_score_guess.return_value = 5.0

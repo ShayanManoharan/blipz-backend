@@ -10,9 +10,11 @@
 # impossible, and what makes "one ranked attempt per user/game/day" a real guarantee
 # instead of a client-side convention.
 
-from datetime import date, timedelta
+import asyncio
+from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.responses import JSONResponse
 from postgrest.exceptions import APIError
 
 from app.agents.content_generator import generate_daily_content, compute_math_answer, TRIVIA_OPTION_IDS
@@ -38,6 +40,30 @@ SCORE_FIELD = {"maths": "maths_score", "guess": "guess_score", "trivia": "trivia
 # scripted-instant submissions, not a determined attacker who sleeps an appropriate
 # duration before calling the API directly.
 MIN_PLAUSIBLE_MATHS_SECONDS = 1.0
+
+# --- Guess scoring-attempt reservation (see PRODUCTION_AUDIT.md B23 fix) ------------
+# Closes the concurrency-cost window left by complete_game_attempt's compare-and-swap:
+# that CAS guarantees only one score is ever *persisted*, but does nothing to stop two
+# simultaneous first requests from both calling OpenAI before either writes. These
+# states let the backend atomically reserve the right to call OpenAI at all, so a
+# concurrent request never independently starts its own scoring call.
+GUESS_STATUS_NOT_STARTED = "not_started"
+GUESS_STATUS_SCORING = "scoring"
+GUESS_STATUS_COMPLETED = "completed"
+GUESS_STATUS_FAILED = "failed"
+
+# If a reservation has been sitting in "scoring" longer than this, its owner is assumed
+# dead (crashed process, dropped connection, etc.) — a later request may reclaim it and
+# retry the OpenAI call itself. Comfortably above typical OpenAI latency (seconds) but
+# short enough that a real crash self-heals within one gameplay session.
+GUESS_SCORING_STALE_AFTER_SECONDS = 30
+
+# Bounded wait for a request that finds scoring already in progress: rather than call
+# OpenAI itself or block indefinitely, it briefly re-polls the stored row in case the
+# in-flight scoring call (typically a couple seconds) finishes within this window. If it
+# doesn't, the caller gets a 202 telling it to retry shortly instead of an error.
+GUESS_WAIT_POLL_ATTEMPTS = 4
+GUESS_WAIT_POLL_INTERVAL_SECONDS = 0.5
 
 
 def update_streak(user_id: str, today: str):
@@ -152,6 +178,126 @@ def complete_game_attempt(user_id: str, today: str, game: str, score, extra_fiel
     return result.data[0], False
 
 
+def _utcnow_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _is_stale(started_at_iso: str | None) -> bool:
+    if not started_at_iso:
+        return True
+    started_at = datetime.fromisoformat(started_at_iso)
+    age = datetime.now(timezone.utc) - started_at
+    return age > timedelta(seconds=GUESS_SCORING_STALE_AFTER_SECONDS)
+
+
+def _claim_guess_scoring_from_not_started_or_failed(row_id: str):
+    result = (
+        supabase.table("scores")
+        .update({"guess_status": GUESS_STATUS_SCORING, "guess_scoring_started_at": _utcnow_iso()})
+        .eq("id", row_id)
+        .eq("guess_completed", False)
+        .in_("guess_status", [GUESS_STATUS_NOT_STARTED, GUESS_STATUS_FAILED])
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def _reclaim_stale_guess_scoring(row_id: str, expected_started_at: str):
+    # Optimistic-concurrency guard: only succeeds if guess_scoring_started_at still
+    # matches exactly what we just read. If another request reclaimed (or completed) it
+    # in the meantime, this affects zero rows and we fall back to "in_progress" rather
+    # than double-reclaiming.
+    result = (
+        supabase.table("scores")
+        .update({"guess_status": GUESS_STATUS_SCORING, "guess_scoring_started_at": _utcnow_iso()})
+        .eq("id", row_id)
+        .eq("guess_completed", False)
+        .eq("guess_status", GUESS_STATUS_SCORING)
+        .eq("guess_scoring_started_at", expected_started_at)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def _release_guess_reservation_as_failed(row_id: str):
+    # Guarded so this only fires if the reservation is still ours (still "scoring") —
+    # if a stale-reclaim or completion already moved it on, leave that alone.
+    supabase.table("scores").update({"guess_status": GUESS_STATUS_FAILED}).eq("id", row_id).eq(
+        "guess_status", GUESS_STATUS_SCORING
+    ).execute()
+
+
+def acquire_guess_scoring_slot(user_id: str, today: str):
+    """
+    Atomically attempts to claim the right to call OpenAI for today's Guess attempt.
+
+    Returns (outcome, row):
+      "acquired"           — caller now owns the reservation and must call OpenAI
+                              exactly once, then either complete_game_attempt(...) or
+                              _release_guess_reservation_as_failed(row["id"]) on error.
+      "already_completed"  — guess_completed is already True; row is the stored result.
+      "in_progress"        — another (non-stale) request is actively scoring; caller
+                              must not call OpenAI.
+
+    Every state transition here is a single conditional Postgres UPDATE (or an insert
+    guarded by the existing UNIQUE(user_id, date) constraint) — never a plain
+    check-then-write in application code — so this is safe under multiple concurrent
+    requests and multiple backend processes, not just within one process.
+    """
+    existing = get_today_score_row(user_id, today)
+
+    if existing is None:
+        insert_data = {
+            "user_id": user_id,
+            "date": today,
+            "maths_score": 0,
+            "trivia_score": 0,
+            "guess_score": 0,
+            "total_score": 0,
+            "guess_status": GUESS_STATUS_SCORING,
+            "guess_scoring_started_at": _utcnow_iso(),
+        }
+        try:
+            supabase.table("scores").insert(insert_data).execute()
+            return "acquired", get_today_score_row(user_id, today)
+        except APIError as e:
+            if e.code != POSTGRES_UNIQUE_VIOLATION:
+                raise
+            # Lost the insert race — another request (for this or a different game)
+            # created today's row first. Fall through to the existing-row path below.
+            existing = get_today_score_row(user_id, today)
+
+    if existing.get("guess_completed"):
+        return "already_completed", existing
+
+    status = existing.get("guess_status") or GUESS_STATUS_NOT_STARTED
+
+    if status in (GUESS_STATUS_NOT_STARTED, GUESS_STATUS_FAILED):
+        claimed = _claim_guess_scoring_from_not_started_or_failed(existing["id"])
+        if claimed:
+            return "acquired", claimed
+        # Lost the race — re-check what actually happened.
+        existing = get_today_score_row(user_id, today)
+        if existing.get("guess_completed"):
+            return "already_completed", existing
+        status = existing.get("guess_status")
+
+    if status == GUESS_STATUS_SCORING:
+        started_at = existing.get("guess_scoring_started_at")
+        if _is_stale(started_at):
+            claimed = _reclaim_stale_guess_scoring(existing["id"], started_at)
+            if claimed:
+                return "acquired", claimed
+            existing = get_today_score_row(user_id, today)
+            if existing.get("guess_completed"):
+                return "already_completed", existing
+        return "in_progress", existing
+
+    # Unreachable given the CHECK constraint (status is always one of the 4 values),
+    # but stay safe rather than ever calling OpenAI from an unrecognized state.
+    return "in_progress", existing
+
+
 @router.get("/test")
 def test():
     return {"message": "Games router is working"}
@@ -190,37 +336,77 @@ def get_daily_content(user_id: str = Depends(get_current_user_id)):
     )
 
 
+def _guess_completed_response(user_id: str, today: str, row: dict) -> dict:
+    return {
+        "user_id": user_id,
+        "guess": row.get("guess_text") or "",
+        "score": row["guess_score"],
+        "date": today,
+        "already_completed": True,
+    }
+
+
 @router.post("/submit-guess")
 @limiter.limit("10/minute")
 async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
 
-    # Check for an existing completed Guess before ever calling OpenAI — this is the
-    # primary defense against re-rolling and repeated charges. (The atomic update
-    # inside complete_game_attempt is the backstop for the narrow true-concurrency
-    # case where two requests both pass this check before either has written — see
-    # PRODUCTION_AUDIT.md follow-up notes on residual risk.)
-    existing = get_today_score_row(user_id, today)
-    if existing and existing.get("guess_completed"):
-        return {
-            "user_id": user_id,
-            "guess": existing.get("guess_text") or "",
-            "score": existing["guess_score"],
-            "date": today,
-            "already_completed": True,
-        }
+    # Atomically reserves the right to call OpenAI at all — this is the fix for B23's
+    # concurrency-cost window. See acquire_guess_scoring_slot's docstring and
+    # PRODUCTION_AUDIT.md B23.
+    outcome, row = acquire_guess_scoring_slot(user_id, today)
 
+    if outcome == "already_completed":
+        return _guess_completed_response(user_id, today, row)
+
+    if outcome == "in_progress":
+        # Bounded wait, not an indefinite block: most Guess scoring finishes in a
+        # couple of seconds, so briefly re-poll the stored row in case it completes
+        # within this window. If it doesn't, tell the caller to retry shortly instead
+        # of calling OpenAI ourselves or blocking forever.
+        for _ in range(GUESS_WAIT_POLL_ATTEMPTS):
+            await asyncio.sleep(GUESS_WAIT_POLL_INTERVAL_SECONDS)
+            fresh = get_today_score_row(user_id, today)
+            if fresh and fresh.get("guess_completed"):
+                return _guess_completed_response(user_id, today, fresh)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "scoring_in_progress",
+                "detail": "Your Guess is already being scored for today — try again in a few seconds.",
+                "date": today,
+            },
+        )
+
+    # outcome == "acquired" — we now exclusively own the right to call OpenAI for
+    # today's Guess attempt. No other request can reach this branch until we either
+    # complete it or release it as failed below.
     content = supabase.table("daily_content").select("image_prompt").eq("date", today).execute()
     if not content.data:
+        _release_guess_reservation_as_failed(row["id"])
         raise HTTPException(status_code=404, detail="No content found for today")
 
     # Always the server's own copy — never a client-supplied prompt/rubric/score.
     actual_prompt = content.data[0]["image_prompt"]
 
-    score = await score_guess(body.guess, actual_prompt)
+    try:
+        score = await score_guess(body.guess, actual_prompt)
+    except Exception:
+        # Release the reservation rather than leaving it stuck in "scoring" — the
+        # user's daily Guess attempt is not consumed, and a resubmission (naturally
+        # throttled by the rate limiter above) will retry cleanly. No internal
+        # exception details are exposed to the client.
+        _release_guess_reservation_as_failed(row["id"])
+        raise HTTPException(
+            status_code=502, detail="Guess scoring is temporarily unavailable — please try again."
+        )
 
     row, already_completed = complete_game_attempt(
-        user_id, today, "guess", score, extra_fields={"guess_text": body.guess}
+        user_id,
+        today,
+        "guess",
+        score,
+        extra_fields={"guess_text": body.guess, "guess_status": GUESS_STATUS_COMPLETED},
     )
 
     return {

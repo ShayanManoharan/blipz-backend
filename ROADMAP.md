@@ -27,18 +27,21 @@ against a stored option **letter**, so essentially every real Trivia attempt sco
 regardless of what the player picked, since the feature's first commit. Fixed by moving
 to a `{question_id, selected_option_id}` contract graded purely by id; content generation
 now validates each question has exactly 4 unique options and a real A-D answer, retrying
-once on malformed model output. See `PRODUCTION_AUDIT.md` B24 for the full root cause,
-the one affected historical dev-data row (unreconstructable, proposed cleanup SQL
-pending approval — not yet run), and live-verification results.
+once on malformed model output. See `PRODUCTION_AUDIT.md` B24 for the full root cause and
+live-verification results. **Historical dev-data cleanup done 2026-07-31** — the one
+unreconstructable affected row had its Trivia fields reset per the approved SQL.
 
-**Pre-production follow-up (B23, not yet implemented):** the Guess submit path still has
-a narrow true-concurrency window where more than one request can call OpenAI before either
-writes its result (only one result is ever persisted — no duplicate scores or storage
-corruption — but the OpenAI-cost bound isn't as tight as it could be). Before launch, change
-`submit_guess` to atomically reserve the day's Guess attempt *before* calling OpenAI (e.g. an
-atomic conditional insert/update on the reservation state), so only the request that wins the
-reservation may call the API at all, and concurrent losers wait for or return the stored/
-in-flight result instead of racing to call OpenAI themselves. See `PRODUCTION_AUDIT.md` B23.
+**Guess concurrency-cost fix (2026-08-01, B23):** the narrow true-concurrency window
+where more than one request could call OpenAI before either wrote its result is now
+fully closed, not just bounded — `submit_guess` atomically reserves the right to call
+OpenAI via an explicit `guess_status` state machine (`not_started` → `scoring` →
+`completed`/`failed`) before ever calling it; a concurrent request that finds scoring
+already in progress briefly re-polls (bounded ~2s) and never calls OpenAI itself. Failed
+scoring releases the reservation for a clean retry; a reservation stuck in `scoring`
+past 30s (e.g. a crashed process) is safely reclaimable. **Migration required, not yet
+applied** — `sql/migrations.sql`'s latest block (`guess_status`, `guess_scoring_started_at`).
+`tests/test_guess_scoring_reservation.py` is fully written and currently all-skipped
+(not failing) pending that migration. See `PRODUCTION_AUDIT.md` B23 for the full design.
 
 ## Core gameplay
 
