@@ -44,7 +44,10 @@ def _cleanup_scores_row(user_id: str):
 
 # Fields that must never appear anywhere in the public daily-content payload.
 FORBIDDEN_TOP_LEVEL_FIELDS = {"prompt", "image_prompt", "scoring_reference", "rubric", "target_concepts"}
-FORBIDDEN_TRIVIA_FIELDS = {"answer", "correct_answer", "correct_index", "explanation", "scoring_reference", "rubric"}
+FORBIDDEN_TRIVIA_FIELDS = {
+    "answer", "correct_answer", "correct_option_id", "correct_index", "explanation",
+    "scoring_reference", "rubric",
+}
 
 
 def _override_auth():
@@ -116,7 +119,7 @@ def test_daily_content_shape_matches_ios_decodable_model():
     for problem in body["math_problems"]:
         assert set(problem.keys()) == {"left_operand", "right_operand", "operation"}
     for question in body["trivia_questions"]:
-        assert set(question.keys()) == {"question", "category", "options"}
+        assert set(question.keys()) == {"id", "question", "category", "options"}
 
 
 @requires_migration
@@ -149,20 +152,22 @@ def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_
 
 @requires_migration
 def test_submit_trivia_has_no_client_supplied_correctness_field():
-    # TriviaScoreSubmit only ever accepts `answers: list[str]` — there is no field for
-    # a client to assert its own correctness/score, so grading is structurally always
-    # server-side. This test also confirms the endpoint still works after the fix.
+    # TriviaAnswerSubmit only ever accepts question_id + selected_option_id — there is
+    # no field for a client to assert its own correctness/score, so grading is
+    # structurally always server-side. This test also confirms the endpoint still works
+    # after the id-based grading fix (see PRODUCTION_AUDIT.md's Trivia grading fix).
     _cleanup_scores_row(REAL_TEST_USER_ID)
     app.dependency_overrides[get_current_user_id] = lambda: REAL_TEST_USER_ID
     try:
         with TestClient(app) as client:
-            response = client.post("/games/submit-trivia", json={"answers": ["A", "A", "A", "A", "A"]})
+            content = client.get("/games/daily-content")
+            if content.status_code == 404:
+                return
+            answers = [{"question_id": q["id"], "selected_option_id": "A"} for q in content.json()["trivia_questions"]]
+            response = client.post("/games/submit-trivia", json={"answers": answers})
     finally:
         _clear_auth_override()
         _cleanup_scores_row(REAL_TEST_USER_ID)
-
-    if response.status_code == 404:
-        return
 
     assert response.status_code == 200
     body = response.json()

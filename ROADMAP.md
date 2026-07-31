@@ -17,10 +17,19 @@ enforced server-side for all three games (B2/B16 fixed — see `PRODUCTION_AUDIT
 Quick Maths' public model changed from `{question, answer}` to `{left_operand,
 right_operand, operation}` so the client computes the answer locally instead of
 receiving a redundant key, and Trivia now has a post-completion review endpoint with
-green/red feedback restored on iOS. **Migration pending**: `sql/migrations.sql`'s
-latest block (scores.maths_completed etc.) needs to be run in Supabase before
-`tests/test_daily_attempt_enforcement.py` will actually execute (currently skipped,
-not failing) and before the live app can use any of this.
+green/red feedback restored on iOS. **Migration applied 2026-07-31** — full backend
+suite passes with 0 skips (`tests/test_daily_attempt_enforcement.py` and friends
+actually execute now, not just skip cleanly).
+
+**Trivia grading fix (2026-07-31, B24, release blocker):** live verification after the
+migration surfaced a severe pre-existing bug — Trivia graded submitted option **text**
+against a stored option **letter**, so essentially every real Trivia attempt scored wrong
+regardless of what the player picked, since the feature's first commit. Fixed by moving
+to a `{question_id, selected_option_id}` contract graded purely by id; content generation
+now validates each question has exactly 4 unique options and a real A-D answer, retrying
+once on malformed model output. See `PRODUCTION_AUDIT.md` B24 for the full root cause,
+the one affected historical dev-data row (unreconstructable, proposed cleanup SQL
+pending approval — not yet run), and live-verification results.
 
 **Pre-production follow-up (B23, not yet implemented):** the Guess submit path still has
 a narrow true-concurrency window where more than one request can call OpenAI before either

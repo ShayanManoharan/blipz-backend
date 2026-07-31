@@ -29,6 +29,61 @@ def parse_trivia_questions(trivia_text):
             raise ValueError(f"Could not parse trivia questions from model output: {trivia_text!r}")
         return json.loads(match.group())
 
+
+TRIVIA_OPTION_IDS = ("A", "B", "C", "D")
+EXPECTED_TRIVIA_QUESTION_COUNT = 5
+
+
+def normalize_trivia_question(raw: dict, index: int) -> dict:
+    """
+    Validates and normalizes one raw model-generated trivia question into the
+    canonical stored shape: {id, question, category, options, correct_option_id}.
+
+    Raises ValueError on any malformed field — see PRODUCTION_AUDIT.md's Trivia
+    grading fix: this used to be an unconstrained free-text `answer` field trusted
+    without validation, which silently tolerated shapes that made grading
+    impossible to get right (see games.py's id-based grading, which depends on
+    every question actually having exactly 4 uniquely-texted options and a
+    correct_option_id that is genuinely one of them).
+    """
+    question = str(raw.get("question", "")).strip()
+    if not question:
+        raise ValueError(f"Trivia question {index} is missing non-empty 'question' text")
+
+    category = str(raw.get("category", "")).strip()
+    if not category:
+        raise ValueError(f"Trivia question {index} is missing non-empty 'category'")
+
+    options = raw.get("options")
+    if not isinstance(options, list) or len(options) != 4:
+        raise ValueError(f"Trivia question {index} must have exactly 4 options, got {options!r}")
+
+    options = [str(opt).strip() for opt in options]
+    if any(not opt for opt in options):
+        raise ValueError(f"Trivia question {index} has an empty option: {options!r}")
+    if len({opt.casefold() for opt in options}) != len(options):
+        raise ValueError(f"Trivia question {index} has duplicate options: {options!r}")
+
+    answer = str(raw.get("answer", "")).strip().upper()
+    if answer not in TRIVIA_OPTION_IDS:
+        raise ValueError(f"Trivia question {index} has an invalid answer/correct_option_id: {raw.get('answer')!r}")
+
+    return {
+        "id": f"q{index}",
+        "question": question,
+        "category": category,
+        "options": options,
+        "correct_option_id": answer,
+    }
+
+
+def normalize_trivia_questions(raw_questions) -> list[dict]:
+    if not isinstance(raw_questions, list) or len(raw_questions) != EXPECTED_TRIVIA_QUESTION_COUNT:
+        raise ValueError(
+            f"Expected exactly {EXPECTED_TRIVIA_QUESTION_COUNT} trivia questions, got {raw_questions!r}"
+        )
+    return [normalize_trivia_question(raw, i) for i, raw in enumerate(raw_questions)]
+
 MATH_OPERATIONS = ("add", "subtract", "multiply", "divide")
 
 
@@ -118,20 +173,33 @@ async def generate_daily_content():
 
     image_url = supabase.storage.from_("blipz-images").get_public_url(file_name)
 
-    # Step 3 — Generate 5 trivia questions using GPT-4o-mini
-    trivia_response = openai_client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{
-            "role": "user",
-            "content": "Generate exactly 5 trivia questions, one from each of these categories: "
-                       "1) Gen Z pop culture, 2) Millennial nostalgia (2000s-2010s), 3) Sports, "
-                       "4) Science or History, 5) Wild card (any topic). "
-                       "Return ONLY a JSON array in this exact format with no extra text:\n"
-                       '[{"question": "...", "category": "...", "options": ["A", "B", "C", "D"], "answer": "A"}]'
-        }]
-    )
-
-    trivia_questions = parse_trivia_questions(trivia_response.choices[0].message.content)
+    # Step 3 — Generate 5 trivia questions using GPT-4o-mini. Retried once on malformed
+    # output (bad option count, duplicate options, non-A-D answer, etc.) since the model
+    # occasionally drifts from the requested shape — see normalize_trivia_questions.
+    trivia_prompt = {
+        "role": "user",
+        "content": "Generate exactly 5 trivia questions, one from each of these categories: "
+                   "1) Gen Z pop culture, 2) Millennial nostalgia (2000s-2010s), 3) Sports, "
+                   "4) Science or History, 5) Wild card (any topic). Each question must have "
+                   "exactly 4 non-empty, unique answer options. "
+                   "Return ONLY a JSON array in this exact format with no extra text:\n"
+                   '[{"question": "...", "category": "...", "options": ["...", "...", "...", "..."], "answer": "A"}]'
+    }
+    trivia_questions = None
+    last_error = None
+    for _attempt in range(2):
+        trivia_response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[trivia_prompt],
+        )
+        try:
+            raw_questions = parse_trivia_questions(trivia_response.choices[0].message.content)
+            trivia_questions = normalize_trivia_questions(raw_questions)
+            break
+        except ValueError as e:
+            last_error = e
+    if trivia_questions is None:
+        raise ValueError(f"Trivia generation produced malformed output after retry: {last_error}")
 
     # Step 4 — Generate math problems
     math_problems = generate_math_problems(20)

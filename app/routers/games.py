@@ -15,7 +15,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, HTTPException, Depends, Request
 from postgrest.exceptions import APIError
 
-from app.agents.content_generator import generate_daily_content, compute_math_answer
+from app.agents.content_generator import generate_daily_content, compute_math_answer, TRIVIA_OPTION_IDS
 from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
@@ -63,6 +63,19 @@ def update_streak(user_id: str, today: str):
 def get_today_score_row(user_id: str, today: str):
     result = supabase.table("scores").select("*").eq("user_id", user_id).eq("date", today).execute()
     return result.data[0] if result.data else None
+
+
+def _trivia_question_id(question: dict, index: int) -> str:
+    # Falls back to a positional id for daily_content rows generated before the
+    # normalize_trivia_questions fix (see content_generator.py) — those rows are never
+    # rewritten, so reads stay correct for them without a JSONB backfill migration.
+    return question.get("id") or f"q{index}"
+
+
+def _trivia_correct_option_id(question: dict) -> str | None:
+    # `answer` is the pre-fix key (see PRODUCTION_AUDIT.md's Trivia grading fix); still
+    # read for old daily_content rows that predate `correct_option_id`.
+    return question.get("correct_option_id") or question.get("answer")
 
 
 def complete_game_attempt(user_id: str, today: str, game: str, score, extra_fields: dict | None = None):
@@ -169,8 +182,10 @@ def get_daily_content(user_id: str = Depends(get_current_user_id)):
             for p in row["math_problems"]
         ],
         trivia_questions=[
-            PublicTriviaQuestion(question=q["question"], category=q["category"], options=q["options"])
-            for q in row["trivia_questions"]
+            PublicTriviaQuestion(
+                id=_trivia_question_id(q, i), question=q["question"], category=q["category"], options=q["options"]
+            )
+            for i, q in enumerate(row["trivia_questions"])
         ],
     )
 
@@ -262,16 +277,30 @@ def submit_trivia(body: TriviaScoreSubmit, user_id: str = Depends(get_current_us
         raise HTTPException(status_code=404, detail="No content found for today")
 
     questions = content.data[0]["trivia_questions"]
+    expected_ids = [_trivia_question_id(q, i) for i, q in enumerate(questions)]
 
-    if len(body.answers) != len(questions):
+    submitted_ids = [a.question_id for a in body.answers]
+    if len(submitted_ids) != len(expected_ids):
         raise HTTPException(status_code=400, detail="Answers do not match today's question set")
+    if len(set(submitted_ids)) != len(submitted_ids):
+        raise HTTPException(status_code=400, detail="Duplicate question_id in submission")
+    if set(submitted_ids) != set(expected_ids):
+        raise HTTPException(status_code=400, detail="Submission contains missing or unknown question_id values")
+
+    # TriviaAnswerSubmit.selected_option_id is already pattern-validated to ^[A-D]$ at
+    # the schema layer, so no further "is it a real option id" check is needed here.
+    answer_by_question_id = {a.question_id: a.selected_option_id for a in body.answers}
 
     correct = sum(
-        1 for question, answer in zip(questions, body.answers) if answer == question["answer"]
+        1
+        for i, question in enumerate(questions)
+        if answer_by_question_id[_trivia_question_id(question, i)] == _trivia_correct_option_id(question)
     )
 
+    stored_answers = [{"question_id": a.question_id, "selected_option_id": a.selected_option_id} for a in body.answers]
+
     row, already_completed = complete_game_attempt(
-        user_id, today, "trivia", correct, extra_fields={"trivia_answers": body.answers}
+        user_id, today, "trivia", correct, extra_fields={"trivia_answers": stored_answers}
     )
 
     return {
@@ -297,18 +326,40 @@ def get_trivia_review(user_id: str = Depends(get_current_user_id)):
         raise HTTPException(status_code=404, detail="No content found for today")
 
     questions = content.data[0]["trivia_questions"]
-    user_answers = existing.get("trivia_answers") or []
+    stored_answers = existing.get("trivia_answers") or []
+
+    # New shape is a list of {"question_id", "selected_option_id"} dicts (see
+    # submit_trivia). Rows completed before this fix stored raw list[str] option TEXT
+    # instead — those can't be reliably mapped back to a question_id/option_id, so they
+    # display as "no selection recorded" rather than guessing. See PRODUCTION_AUDIT.md's
+    # Trivia grading fix and the historical-data cleanup notes there.
+    selection_by_question_id: dict[str, str] = {}
+    if stored_answers and isinstance(stored_answers[0], dict):
+        selection_by_question_id = {
+            a.get("question_id"): a.get("selected_option_id") for a in stored_answers
+        }
 
     review = []
     for i, question in enumerate(questions):
-        selected = user_answers[i] if i < len(user_answers) else None
+        qid = _trivia_question_id(question, i)
+        options = question["options"]
+        correct_option_id = _trivia_correct_option_id(question)
+        correct_index = TRIVIA_OPTION_IDS.index(correct_option_id) if correct_option_id in TRIVIA_OPTION_IDS else None
+        correct_answer_text = options[correct_index] if correct_index is not None and correct_index < len(options) else "?"
+
+        selected_option_id = selection_by_question_id.get(qid)
+        selected_index = TRIVIA_OPTION_IDS.index(selected_option_id) if selected_option_id in TRIVIA_OPTION_IDS else None
+        selected_answer_text = options[selected_index] if selected_index is not None and selected_index < len(options) else None
+
         review.append(
             TriviaReviewQuestion(
                 question=question["question"],
-                options=question["options"],
-                selected_answer=selected,
-                correct_answer=question["answer"],
-                is_correct=selected == question["answer"],
+                options=options,
+                selected_option_id=selected_option_id,
+                selected_answer_text=selected_answer_text,
+                correct_option_id=correct_option_id or "?",
+                correct_answer_text=correct_answer_text,
+                is_correct=selected_option_id is not None and selected_option_id == correct_option_id,
             )
         )
 

@@ -30,8 +30,17 @@ class GuessScoreSubmit(BaseModel):
     # before it ever reaches the OpenAI call.
     guess: str = Field(min_length=1, max_length=300)
 
+class TriviaAnswerSubmit(BaseModel):
+    question_id: str = Field(min_length=1)
+    # Pinned to A-D at the schema layer: the client submits a stable option identifier
+    # (never the visible option text), and this is the only ever-valid identifier shape
+    # today's normalized content produces. See PRODUCTION_AUDIT.md's Trivia grading fix —
+    # this replaces comparing submitted option TEXT against a stored option LETTER, which
+    # silently always failed to match for any real (non-placeholder) content.
+    selected_option_id: str = Field(pattern="^[A-D]$")
+
 class TriviaScoreSubmit(BaseModel):
-    answers: list[str]
+    answers: list[TriviaAnswerSubmit]
 
 class ScoreResponse(BaseModel):
     user_id: str
@@ -60,11 +69,17 @@ class PublicMathProblem(BaseModel):
 
 
 class PublicTriviaQuestion(BaseModel):
+    # Stable for this day's content row (assigned once at generation time, positional —
+    # "q0".."q4" — not globally unique across days, which is all client<->server
+    # round-tripping within a single day's attempt needs). Lets the client tag each
+    # answer with the question it belongs to instead of relying on submission order.
+    id: str
     question: str
     category: str
     options: list[str]
-    # Intentionally no `answer` field. /submit-trivia grades server-side by re-fetching
-    # the real question set; the client only ever learns aggregate correct/total.
+    # Intentionally no `answer`/`correct_option_id` field. /submit-trivia grades
+    # server-side by re-fetching the real question set; the client only ever learns
+    # aggregate correct/total before completion.
 
 
 class PublicDailyContentResponse(BaseModel):
@@ -85,8 +100,10 @@ class PublicDailyContentResponse(BaseModel):
 class TriviaReviewQuestion(BaseModel):
     question: str
     options: list[str]
-    selected_answer: str | None
-    correct_answer: str
+    selected_option_id: str | None
+    selected_answer_text: str | None
+    correct_option_id: str
+    correct_answer_text: str
     is_correct: bool
 
 

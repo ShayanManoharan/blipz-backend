@@ -16,12 +16,34 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.agents.content_generator import TRIVIA_OPTION_IDS
 from app.auth import get_current_user_id
 from app.database import supabase
 from app.main import app
 from app.rate_limit import limiter
+from app.routers.games import _trivia_question_id, _trivia_correct_option_id
 
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
+
+
+def _todays_trivia_questions():
+    today = date.today().isoformat()
+    row = supabase.table("daily_content").select("trivia_questions").eq("date", today).execute().data[0]
+    return row["trivia_questions"]
+
+
+def _all_wrong_trivia_answers():
+    # A deliberately, deterministically all-wrong submission — needs the real
+    # correct_option_id (only available via direct DB access, not the public payload)
+    # to guarantee every pick is wrong, now that valid submissions must be real A-D
+    # option ids rather than arbitrary nonsense text like the old "answer" contract
+    # allowed.
+    answers = []
+    for i, q in enumerate(_todays_trivia_questions()):
+        correct = _trivia_correct_option_id(q)
+        wrong = next(opt for opt in TRIVIA_OPTION_IDS if opt != correct)
+        answers.append({"question_id": _trivia_question_id(q, i), "selected_option_id": wrong})
+    return answers
 
 
 def _migration_applied() -> bool:
@@ -180,11 +202,8 @@ def test_guess_rate_limit_enforced(mock_score_guess):
 def test_genuine_zero_trivia_score_is_still_marked_completed():
     _auth_as()
     with TestClient(app) as client:
-        content = client.get("/games/daily-content").json()
-        questions = content["trivia_questions"]
         # Deliberately wrong answers for every question — a legitimate all-wrong run.
-        wrong_answers = ["not a real option"] * len(questions)
-        response = client.post("/games/submit-trivia", json={"answers": wrong_answers})
+        response = client.post("/games/submit-trivia", json={"answers": _all_wrong_trivia_answers()})
 
     assert response.status_code == 200
     body = response.json()
@@ -243,11 +262,9 @@ def test_trivia_review_unavailable_before_completion():
 
 def test_trivia_review_available_after_completion():
     _auth_as()
+    questions = _todays_trivia_questions()
     with TestClient(app) as client:
-        content = client.get("/games/daily-content").json()
-        questions = content["trivia_questions"]
-        answers = ["not a real option"] * len(questions)
-        client.post("/games/submit-trivia", json={"answers": answers})
+        client.post("/games/submit-trivia", json={"answers": _all_wrong_trivia_answers()})
 
         response = client.get("/games/trivia-review")
 
@@ -255,8 +272,10 @@ def test_trivia_review_available_after_completion():
     body = response.json()
     assert len(body["review"]) == len(questions)
     for item in body["review"]:
-        assert "correct_answer" in item
-        assert "selected_answer" in item
+        assert "correct_option_id" in item
+        assert "correct_answer_text" in item
+        assert "selected_option_id" in item
+        assert "selected_answer_text" in item
         assert item["is_correct"] is False  # we deliberately answered everything wrong
 
 

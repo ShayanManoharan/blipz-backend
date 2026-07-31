@@ -96,15 +96,19 @@ client-sent score) — the leak was entirely in what `GET /games/daily-content` 
 > accepted residual risk: a client can still read `answer` and submit a perfect Maths
 > score without playing. Trivia and Guess no longer have this problem at all (see below).
 
-### Daily Trivia — ✅ fixed 2026-07-30
+### Daily Trivia — ✅ fixed 2026-07-30 (answer leak), ✅ fixed 2026-07-31 (grading, see B24)
 
 `trivia_questions[].answer` is no longer returned by `GET /games/daily-content` — the
-endpoint now returns `PublicTriviaQuestion` (question/category/options only).
-`/submit-trivia` was already grading server-side by re-fetching the real answers, so
-scoring behavior is unchanged. One side effect: `TriviaGameView`'s per-question
-correct/incorrect reveal (added in an earlier polish pass) depended on the client having
-`answer` and has been removed — selecting an option now shows a neutral "selected" state
-and advances; the aggregate correct/total is still shown on the result screen, unaffected.
+endpoint now returns `PublicTriviaQuestion` (id/question/category/options only).
+`/submit-trivia` was already grading server-side by re-fetching the real answers — but
+**that grading was itself broken** (see **B24**): it compared submitted option text
+against a stored option letter, which never matched for any real content. This was only
+caught the next day, during live verification of an unrelated fix, not as part of this
+2026-07-30 pass. `TriviaGameView`'s per-question correct/incorrect reveal (from an
+earlier polish pass) was removed here since it depended on the client having `answer`;
+it came back on 2026-07-31 as a post-submission review screen (`GET
+/games/trivia-review`), which is also where the id-based grading fix's correctness is
+now visible to the player.
 
 ### AI Prompt Guess — ✅ fixed 2026-07-30 (prompt leak, and now B2/B16 below too)
 
@@ -139,6 +143,7 @@ sequenceDiagram
 | **B1** | ✅ **Fixed 2026-07-30.** `GET /games/daily-content` was fully unauthenticated and returned `trivia_questions[].answer` and `image_prompt` (the Guess answer) in plaintext, before the user played. Now requires auth and returns allowlisted `Public*` response models with those fields stripped. `math_problems[].answer` is intentionally still returned (documented exception — see the Quick Maths data-flow section above); everything else about the original finding is closed. Regression tests: `tests/test_daily_content_security.py`. | `app/routers/games.py`, `app/models/schemas.py` | Residual: a client can still read `math_problems[].answer` and submit a perfect Maths score without playing — accepted, not fixed, by design (see rationale above). |
 | **B2** | ✅ **Fixed 2026-07-30.** `submit_guess`/`submit_maths`/`submit_trivia` now all go through `complete_game_attempt()`, which checks completion state before writing and uses an atomic conditional UPDATE (`.eq(completed_field, False)`) as a compare-and-swap guard — a repeated submission returns the original stored result (`already_completed: true`) instead of recomputing or overwriting. Guess specifically also checks-before-calling-OpenAI, so a resubmit never re-charges. Residual: in a narrow true-concurrency window (two requests both pass the check before either writes), a handful of extra OpenAI calls could still fire, though only one result is ever persisted — closing that fully would need a distributed lock, not added given the backend isn't hosted yet. **Pre-production follow-up tracked, not yet implemented — see B23 below.** Tests: `tests/test_daily_attempt_enforcement.py`. | `app/routers/games.py` (`complete_game_attempt`) | Residual: bounded extra-OpenAI-call risk in a millisecond-scale race window; no re-roll or storage corruption possible either way. |
 | **B23** | **Pre-production follow-up (not yet implemented).** The Guess concurrency-cost window (B2's residual risk) should be closed before launch by reserving the user's daily Guess attempt atomically *before* calling OpenAI — e.g. an atomic conditional INSERT/UPDATE that flips `guess_completed`-style reservation state first, so only the request that wins that reservation is allowed to call OpenAI at all. Concurrent losers should wait for (or immediately return) the stored/in-flight result rather than each racing to call the API. This eliminates the "several concurrent requests all pass the check before any of them write" case entirely, rather than just bounding its damage. Deliberately **not implemented in the 2026-07-30 slice** — the current check-then-CAS design already prevents duplicate stored scores and any storage corruption; this follow-up only tightens the OpenAI-cost bound and was scoped out to avoid unnecessary churn before the backend is even hosted. | `app/routers/games.py` (`submit_guess`, `complete_game_attempt`) | Until implemented, a true concurrent double-submit can still trigger more than one OpenAI call (bounded, not unbounded) even though only one score is ever persisted. |
+| **B24** | ✅ **Fixed 2026-07-31. Release blocker.** `/submit-trivia` graded by comparing the submitted answer against `daily_content.trivia_questions[].answer`, which was always stored as an option **letter** (`"A"`/`"B"`/`"C"`/`"D"`) — but iOS submitted the full **option text** the user tapped (e.g. `"Renegade"`). `"Renegade" == "A"` never matched, so **every real (non-placeholder-content) Trivia attempt was graded wrong regardless of what the player picked**, since the very first commit that implemented Trivia scoring (`ebae4c4`). It went undetected because two early dev-data days happened to use placeholder content whose options were literally the strings `"A"/"B"/"C"/"D"`, which could coincidentally match the stored letter. Fixed by changing the contract: `daily_content` questions are now normalized at generation time to `{id, question, category, options, correct_option_id}` (see `content_generator.normalize_trivia_questions` — also validates exactly 4 unique non-empty options and a real A-D answer, retrying generation once on malformed model output); the client submits `{question_id, selected_option_id}` pairs (`selected_option_id` pattern-validated to `^[A-D]$`); the backend grades by comparing ids, never text, and rejects submissions with missing/duplicate/extra/unknown `question_id`s. `GET /games/trivia-review` now returns both the id and human-readable text for the selected and correct answers. Old daily_content rows generated before this fix (using `answer` instead of `correct_option_id`, no `id`) still read correctly via a positional fallback — no content backfill needed. Regression tests: `tests/test_trivia_grading.py`, `tests/test_content_generator.py`. Live-verified against real (non-placeholder) content: a real authenticated submission of the actual correct option text, mapped to its position's id, scored 5/5. | `app/agents/content_generator.py`, `app/models/schemas.py`, `app/routers/games.py` | Historical dev data: one `scores` row (2026-07-30, `trivia_score=2`) was graded under the broken logic and its raw answers were never stored (`trivia_answers` predates this row), so it cannot be reconstructed — recommended cleanup is to zero out just that row's Trivia fields (see §5). No production users existed at the time of this bug — nothing to notify or refund. |
 | **B3** | Guess scoring interpolates the raw player-supplied guess text directly into the LLM prompt with no delimiter/sanitization. | `app/agents/guess_scorer.py:44` | Prompt-injection vector — a crafted guess could attempt to manipulate the judge into returning a maximal score. |
 
 ### Daily content pipeline
@@ -199,16 +204,19 @@ they block everything else:
 
 1. ~~**B1** — public endpoint leaks all three games' answers.~~ **✅ Fixed 2026-07-30**
    (Trivia/Guess fully; Maths answer intentionally kept, see finding B1 above). (Backend)
-2. **B14 + B20** — no hosted backend; app points at localhost. (Deployment + iOS)
-3. **B19** — no account-deletion flow. (iOS + Backend)
-4. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
-5. **B8** — silent identity loss on session-restore failure, no recovery. (iOS)
-6. **B11** — non-consensual, unremovable friending. (Backend + iOS)
-7. **B15** — wildcard CORS + credentials. (Backend)
-8. **B17** — no alerting on scheduler failure. (Backend)
-9. ~~**B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`.~~
-   **✅ Fixed 2026-07-30** (Backend) — rate limiting still needed on other routes; see B16 above.
-10. **B4 + B5 + B7** — content pipeline has no retry/fallback/buffer. (Backend)
+2. ~~**B24** — Trivia graded submitted option text against a stored option letter,
+   silently scoring every real attempt wrong.~~ **✅ Fixed 2026-07-31** — see B24 above.
+   (Backend + iOS)
+3. **B14 + B20** — no hosted backend; app points at localhost. (Deployment + iOS)
+4. **B19** — no account-deletion flow. (iOS + Backend)
+5. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
+6. **B8** — silent identity loss on session-restore failure, no recovery. (iOS)
+7. **B11** — non-consensual, unremovable friending. (Backend + iOS)
+8. **B15** — wildcard CORS + credentials. (Backend)
+9. **B17** — no alerting on scheduler failure. (Backend)
+10. ~~**B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`.~~
+    **✅ Fixed 2026-07-30** (Backend) — rate limiting still needed on other routes; see B16 above.
+11. **B4 + B5 + B7** — content pipeline has no retry/fallback/buffer. (Backend)
 
 ---
 
@@ -232,6 +240,26 @@ they block everything else:
 - Longer-term (not a blocker): a per-attempt table (`user_id, daily_content_id, game_type,
   started_at, completed_at, score`) for real analytics and anti-cheat signal, as originally
   suggested.
+- **Historical dev-data audit (B24, 2026-07-31)**: of the 2 rows in `scores` at the time of
+  the fix, one (`id=5b92729d-5e7a-4524-bfe4-134430c47349`, `date=2026-07-30`,
+  `trivia_score=2`, `trivia_completed=true`) was graded under the broken text-vs-letter
+  comparison. Its `trivia_answers` is `NULL` (the row predates that column's population),
+  so there is no record of what was actually submitted — **reconstruction is not
+  possible** by any of stored answers, daily content, or question ordering. The row's
+  `maths_score`/`maths_completed`/`guess_score`/`guess_completed` are untouched by this
+  bug and were left alone. Since the app has no production users yet, the recommended
+  (not yet executed — pending approval) cleanup is to zero out only that row's Trivia
+  fields rather than guess a score or delete the whole row:
+  ```sql
+  UPDATE scores
+  SET trivia_score = 0,
+      trivia_completed = false,
+      trivia_answers = NULL,
+      total_score = maths_score + guess_score
+  WHERE id = '5b92729d-5e7a-4524-bfe4-134430c47349';
+  ```
+  The other row (2026-07-29) already has `trivia_completed=false`/`trivia_score=0` and
+  needs no change.
 
 ---
 
