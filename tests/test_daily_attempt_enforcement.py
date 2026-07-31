@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user_id
 from app.database import supabase
 from app.main import app
+from app.rate_limit import limiter
 
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
 
@@ -157,14 +158,20 @@ def test_excessively_long_guess_rejected():
 def test_guess_rate_limit_enforced(mock_score_guess):
     mock_score_guess.return_value = 5.0
     _auth_as()
-    with TestClient(app) as client:
-        statuses = []
-        for i in range(12):
-            response = client.post("/games/submit-guess", json={"guess": f"guess number {i}"})
-            statuses.append(response.status_code)
-            _cleanup()  # clear completion between calls so we're testing the rate limiter, not idempotency
+    try:
+        with TestClient(app) as client:
+            statuses = []
+            for i in range(12):
+                response = client.post("/games/submit-guess", json={"guess": f"guess number {i}"})
+                statuses.append(response.status_code)
+                _cleanup()  # clear completion between calls so we're testing the rate limiter, not idempotency
 
-    assert 429 in statuses, f"expected a 429 among {statuses} after exceeding the configured limit"
+        assert 429 in statuses, f"expected a 429 among {statuses} after exceeding the configured limit"
+    finally:
+        # The limiter's in-memory storage is process-global and otherwise persists
+        # for the rest of this pytest run, 429-ing every later test that hits
+        # submit-guess from the same (fake testclient) IP within the same window.
+        limiter.reset()
 
 
 # --- Genuine zero score still counts as completed ---------------------------------
