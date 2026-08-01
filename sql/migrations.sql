@@ -152,19 +152,24 @@ ALTER TABLE daily_content
   ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS fallback_source_id UUID;
 
--- Explicit backfill: every row that existed before this migration ran was implicitly
--- "live" the moment it was inserted (the old generate_daily_content() had no
--- draft/publish distinction) — so every row that just landed on the 'draft' default
--- above is, in fact, one of those historically-live rows and must be moved to
--- 'published' explicitly. Nothing inserted after this migration can ever be caught by
--- this UPDATE (it only ever runs once, as part of applying this migration).
+-- Explicit backfill, scoped to the exact 5 rows that existed before this migration —
+-- NOT `WHERE status = 'draft'`. A status-based match would also catch any legitimate
+-- future draft row if this block were ever rerun (e.g. mid `/admin/replace-content`,
+-- which sets status back to 'draft' before regenerating), silently publishing content
+-- that was never meant to go live yet. Matching by id is exact and rerun-safe
+-- regardless of what state any other row is in, now or later — a rerun just resets
+-- these same 5 rows to the same values again (a harmless no-op).
 UPDATE daily_content
-SET status = 'published'
-WHERE status = 'draft';
-
-UPDATE daily_content
-SET generated_at = created_at, published_at = created_at
-WHERE generated_at IS NULL;
+SET status = 'published',
+    generated_at = created_at,
+    published_at = created_at
+WHERE id IN (
+  'fc47ca77-0ff8-491f-8bb1-66109226f3bb',
+  '89772dd4-be83-477a-a2bd-ad10d440771f',
+  'bbe3fcdf-c906-4f3b-a163-0535c8360600',
+  '347498f2-9294-494e-9071-24ea61ed2c84',
+  '621d76f0-63cb-4251-b952-880bad96606c'
+);
 
 -- Audit trail for the generate/publish pipeline — deliberately a separate table from
 -- daily_content so a failed attempt never risks violating daily_content's

@@ -317,6 +317,13 @@ def test_utc_today_and_tomorrow_are_consistent():
 # or activate_fallback_for_date) makes a row visible to GET /games/daily-content.
 
 HISTORICAL_PUBLISHED_DATES = ["2026-05-31", "2026-06-01", "2026-07-29", "2026-07-30", "2026-07-31"]
+LEGACY_DAILY_CONTENT_IDS = [
+    "fc47ca77-0ff8-491f-8bb1-66109226f3bb",
+    "89772dd4-be83-477a-a2bd-ad10d440771f",
+    "bbe3fcdf-c906-4f3b-a163-0535c8360600",
+    "347498f2-9294-494e-9071-24ea61ed2c84",
+    "621d76f0-63cb-4251-b952-880bad96606c",
+]
 
 
 @contextmanager
@@ -421,3 +428,51 @@ def test_historical_rows_are_published_after_backfill():
     assert len(rows) == len(HISTORICAL_PUBLISHED_DATES)
     for row in rows:
         assert row["status"] == "published", f"{row['date']} should be 'published' after backfill, got {row['status']!r}"
+
+
+def _rerun_legacy_backfill():
+    """
+    Executes the exact same operation as sql/migrations.sql's backfill UPDATE
+    (status='published', generated_at/published_at=created_at, scoped to the 5 known
+    legacy row ids) — there's no SQL-file execution harness in this project, so this
+    mirrors the migration's exact id-scoped WHERE clause rather than only re-testing
+    application code. Proves the backfill is rerun-safe: matching by id (not by
+    status) means it can never catch a legitimate future draft/ready row.
+    """
+    rows = supabase.table("daily_content").select("id, created_at").in_(
+        "id", LEGACY_DAILY_CONTENT_IDS
+    ).execute().data
+    for row in rows:
+        supabase.table("daily_content").update({
+            "status": "published",
+            "generated_at": row["created_at"],
+            "published_at": row["created_at"],
+        }).eq("id", row["id"]).execute()
+
+
+@requires_daily_content_status_migration
+def test_rerunning_legacy_backfill_does_not_touch_new_draft_rows():
+    # Stand-in for a legitimate future draft row (e.g. mid /admin/replace-content,
+    # which sets status back to 'draft' before regenerating, or any date generated but
+    # not yet published) that must survive a rerun of the migration's backfill
+    # untouched.
+    date_str = TEST_CONTENT_DATE.isoformat()
+    supabase.table("daily_content").insert({
+        "date": date_str,
+        "image_url": "https://example.invalid/test.png",
+        "image_prompt": "test prompt",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(20),
+        "status": "draft",
+    }).execute()
+
+    _rerun_legacy_backfill()
+
+    new_row = supabase.table("daily_content").select("status").eq("date", date_str).execute().data[0]
+    assert new_row["status"] == "draft"  # untouched by the rerun
+
+    legacy_rows = supabase.table("daily_content").select("status").in_(
+        "id", LEGACY_DAILY_CONTENT_IDS
+    ).execute().data
+    assert len(legacy_rows) == len(LEGACY_DAILY_CONTENT_IDS)
+    assert all(r["status"] == "published" for r in legacy_rows)  # still correct
