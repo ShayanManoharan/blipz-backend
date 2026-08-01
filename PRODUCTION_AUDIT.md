@@ -9,6 +9,10 @@ from code (e.g. Supabase dashboard access policy), that's stated explicitly rath
 
 This document does not implement fixes — per instruction, it's audit + roadmap only.
 
+**2026-08-01 update:** see `docs/DEPLOYMENT.md` for the hosting comparison,
+environment strategy, and full deployment/rollback runbook produced for B14/B20/B22 —
+summarized inline at each relevant finding below, not duplicated in full here.
+
 ---
 
 ## 1. Current architecture
@@ -150,10 +154,10 @@ sequenceDiagram
 
 | ID | Finding | File | Risk |
 |----|---------|------|------|
-| **B4** | No retry, fallback, or alerting if any of the 3 sequential OpenAI calls in `generate_daily_content()` fails (timeout, content-policy refusal, malformed response exhausting the existing regex fallback). Scheduler catches the exception and only logs it — no re-schedule, no notification. | `app/agents/content_generator.py`, `app/scheduler.py:21-22` | A single OpenAI hiccup leaves **the entire day broken for every user**, with nobody aware until someone notices manually (as happened during this session's own testing). |
-| **B5** | `AsyncIOScheduler` uses the default in-memory job store with no misfire/catch-up handling. If the process isn't running at exactly 00:00 local (machine asleep, deploy in progress, crash), the job simply never fires — confirmed directly this session. | `app/scheduler.py` | Same failure mode as B4, triggered by infrastructure rather than OpenAI. |
+| **B4** | ✅ **Substantially fixed 2026-08-01 — deployment pending.** `generate_content_for_date()`/`publish_content_for_date()` (see the deployment plan below and `docs/DEPLOYMENT.md`) validate the entire package (image generated + uploaded + upload-reachability-verified, all 5 Trivia questions validated, retried once) before ever writing a row — a failure raises and stores nothing, logged to `daily_content_generation_log`. If nothing is `ready` by publish time, a prevalidated fallback package is activated automatically instead of leaving the day broken. Not yet live: this only takes effect once actually deployed and the external cron is wired up (see §"Hosted deployment" below). | `app/agents/content_generator.py` | Residual: image *generation itself* retries 0 times (only Trivia retries once) — a transient OpenAI image failure still falls through to the fallback path rather than a same-attempt retry; acceptable given the fallback exists, but worth tightening later. |
+| **B5** | ✅ **Fixed 2026-08-01 (design), deployment pending.** The in-process `AsyncIOScheduler` now only starts when `ENVIRONMENT=development` (`app/main.py`) — staging/production rely on the host's own scheduled-job feature (Render Cron Jobs in the recommended plan) hitting the protected `/admin/generate-content` and `/admin/publish-content` endpoints, which has real misfire/retry semantics unlike an in-process job tied to one process's uptime. | `app/main.py`, `render.yaml` | None once actually deployed with the cron jobs configured; until then this is local-dev-only, matching the status quo. |
 | **B6** | No content moderation step before publishing the AI-generated image/prompt to all users. | `app/agents/content_generator.py` | OpenAI's own image-gen safety system provides some protection (surfaces as B4's failure mode if triggered), but there's no app-level review/reporting mechanism — likely an App Review question for AI-generated user-facing content. |
-| **B7** | No pre-generation buffer — content is generated synchronously, exactly at the deadline, with real OpenAI calls sitting in the critical path. | `app/scheduler.py` (`CronTrigger(hour=0, minute=0)`) | No margin for retry between failure and the day's release; compounds B4/B5. |
+| **B7** | ✅ **Fixed 2026-08-01 (design), deployment pending.** Generation and publication are now separate operations — a Render Cron Job is intended to generate tomorrow's content well before the boundary (22:00 UTC in `render.yaml`), giving hours of margin to retry before publication (00:05 UTC) needs anything ready. | `render.yaml`, `app/agents/content_generator.py` | None once deployed; the retry margin only exists once the cron schedule is actually running. |
 
 ### Authentication & identity
 
@@ -175,15 +179,15 @@ sequenceDiagram
 
 | ID | Finding | File | Risk |
 |----|---------|------|------|
-| **B14** | No hosting/deploy config of any kind exists (no `fly.toml`/`render.yaml`/`Procfile`/CI workflow) — only a `Dockerfile`. The backend has never been deployed anywhere. | repo-wide (confirmed absent) | App Review cannot use the app at all in its current state — it points at `127.0.0.1`. |
-| **B15** | `CORSMiddleware` is configured with `allow_origins=["*"]` **and** `allow_credentials=True` simultaneously — a real misconfiguration (browsers/spec discourage this combination), and clearly a dev-only setting never locked down. | `app/main.py:26-31` | Security misconfiguration; must be scoped to the real production origin(s) before launch. |
+| **B14** | ⏳ **Plan + repository changes ready 2026-08-01, not yet deployed.** Full hosting comparison (Render/Railway/Fly.io), `render.yaml`, updated `Dockerfile` (non-root user, `$PORT` support, `HEALTHCHECK`), and a full runbook are in `docs/DEPLOYMENT.md`. **Deliberately not deployed** — deploying creates a billable resource and needs explicit approval first. | `render.yaml`, `Dockerfile`, `docs/DEPLOYMENT.md` | Still a release blocker until actually deployed — a plan isn't a running server. |
+| **B15** | ✅ **Fixed 2026-08-01.** `CORSMiddleware` now uses `settings.cors_allowed_origins_list` (empty by default) and only enables `allow_credentials` when origins are explicitly configured — never wildcard-origin-plus-credentials again. Native iOS doesn't depend on CORS at all; this only matters if browser-based tooling is added later. | `app/main.py`, `app/config.py` | None — revisit only if/when a web client is added, by setting `CORS_ALLOWED_ORIGINS` for that environment. |
 | **B16** | ✅ **Partially fixed 2026-07-30.** `POST /games/submit-guess` now has `@limiter.limit("10/minute")` (slowapi, keyed by IP). Still no rate limiting on any other route. Uses slowapi's default in-memory storage — **not sufficient once the backend runs on more than one process/instance** (each instance tracks its own counter independently); revisit with a shared store (e.g. Redis) before scaling out. Also keyed by IP, not authenticated user, as a simplification — doesn't perfectly isolate abuse by one user across IPs or protect users sharing an IP/NAT. | `app/rate_limit.py`, `app/routers/games.py` | Cost/abuse exposure remains on every other route; the fixed route's protection weakens under multi-instance deployment. |
-| **B17** | No logging/error-tracking/alerting beyond stdout. Scheduler failures (B4/B5) are invisible unless someone manually checks logs. | repo-wide (no Sentry/structlog/etc.) | Nobody gets paged when the daily content pipeline breaks. |
+| **B17** | ✅ **Partially fixed 2026-08-01.** Structured logging now exists throughout the daily-content pipeline, Guess scoring failures, and app startup (`app/logging_config.py`) — never logging API keys, full tokens, raw guess text, or hidden image prompts. `GET /health`, `GET /health/ready`, and `GET /admin/content-status` give real operational visibility. **No external alerting (Sentry or similar) yet** — someone still has to look at logs/the status endpoint; nothing pages anyone automatically. | `app/logging_config.py`, `app/main.py`, `app/routers/admin_content.py` | Silent failures are now observable (not invisible) but still not proactively alerted on. |
 | **B18** | No `PrivacyInfo.xcprivacy` exists in the iOS app target. | confirmed absent, `Blipz/` | Apple requires this; App Store Connect submission will flag it. |
 | **B19** | No account-deletion flow exists anywhere in the iOS app (no settings screen, not even sign-out). | confirmed absent, `Blipz/Views/` | Apple App Review Guideline 5.1.1(v) requires in-app account deletion for apps that support account creation — anonymous Supabase accounts likely qualify. |
-| **B20** | `Config.swift` hardcodes `apiBaseURL = http://127.0.0.1:8000`. | `Blipz/Services/Config.swift:8` | Any TestFlight/App Review build currently points at a dead loopback address — compounds B14. |
+| **B20** | ⏳ **Code ready 2026-08-01, URL handoff pending.** `Config.swift` is now environment-aware (Debug/Staging/Release via `Blipz/Configs/*.xcconfig`), with an explicit placeholder (`REPLACE_WITH_{STAGING,PRODUCTION}_BACKEND_URL`) for Staging/Release rather than a real or guessed URL — `fatalError`s at launch if the placeholder is still present, or if a non-Debug build somehow points at localhost. Debug keeps working locally via a compiled-in fallback. **Still blocked on B14** — there's no real hosted URL to put in these files until deployment happens. | `Blipz/Services/Config.swift`, `Blipz/Configs/*.xcconfig` | Compounds B14 until deployed; once deployed, updating the two placeholder lines is the entire remaining step. |
 | **B21** | iOS deployment target is `IPHONEOS_DEPLOYMENT_TARGET = 26.0` with no code dependency found that requires it. | `project.pbxproj` | Needlessly excludes the large majority of real-world iOS users for a v1.0 launch. |
-| **B22** | Daily reset boundary is still server-local time with no explicit timezone anywhere (`date.today()`), a known gap noted in earlier planning and never resolved. | `app/routers/games.py`, `app/agents/content_generator.py` | For real users across timezones, "today" resets at an arbitrary, undocumented moment — affects fairness and the (currently absent, correctly so) reset-countdown UI. |
+| **B22** | ✅ **Fixed 2026-08-01.** UTC is now the explicit, documented day boundary (`app/time_utils.py`) — every `date.today()` call in `games.py`/`content_generator.py` that determines "today"/"tomorrow" for game state or daily content was replaced with `utc_today()`/`utc_tomorrow()`. This was a decision that needed making, not a bug to "fix" further — see `docs/DEPLOYMENT.md` §3. | `app/time_utils.py`, `app/routers/games.py`, `app/agents/content_generator.py` | None — this is now a recorded, intentional choice rather than an accident of server locale. |
 
 ### Confirmed non-issues (checked, no finding)
 
@@ -207,16 +211,20 @@ they block everything else:
 2. ~~**B24** — Trivia graded submitted option text against a stored option letter,
    silently scoring every real attempt wrong.~~ **✅ Fixed 2026-07-31** — see B24 above.
    (Backend + iOS)
-3. **B14 + B20** — no hosted backend; app points at localhost. (Deployment + iOS)
+3. **B14 + B20** — ⏳ plan + code ready (`docs/DEPLOYMENT.md`), **not yet deployed** — still
+   blocks App Review until an actual HTTPS URL exists and iOS points at it. (Deployment + iOS)
 4. **B19** — no account-deletion flow. (iOS + Backend)
 5. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
 6. **B8** — silent identity loss on session-restore failure, no recovery. (iOS)
 7. **B11** — non-consensual, unremovable friending. (Backend + iOS)
-8. **B15** — wildcard CORS + credentials. (Backend)
-9. **B17** — no alerting on scheduler failure. (Backend)
+8. ~~**B15** — wildcard CORS + credentials.~~ **✅ Fixed 2026-08-01** (Backend)
+9. ~~**B17** — no alerting on scheduler failure.~~ **✅ Partially fixed 2026-08-01** — structured
+   logging + health/status endpoints exist; no external paging yet. (Backend)
 10. ~~**B2 + B16** — unlimited OpenAI cost exposure via unthrottled `submit-guess`.~~
     **✅ Fixed 2026-07-30** (Backend) — rate limiting still needed on other routes; see B16 above.
-11. **B4 + B5 + B7** — content pipeline has no retry/fallback/buffer. (Backend)
+11. ~~**B4 + B5 + B7** — content pipeline has no retry/fallback/buffer.~~ **✅ Fixed 2026-08-01
+    (design), not yet deployed** — takes effect once B14 is deployed and the cron jobs run.
+    (Backend)
 
 ---
 
@@ -233,16 +241,21 @@ they block everything else:
   `scores` row per user/day, and reworking that aggregation was disproportionate churn
   relative to what closing the actual security gap required. Revisit if per-attempt
   history/analytics become a real product need later.
-- ✅ **Code done 2026-08-01, migration not yet applied**: added `guess_status` (`not_started`/
-  `scoring`/`completed`/`failed`, CHECK-constrained) and `guess_scoring_started_at` to
-  `scores` (fixes B23) — an explicit reservation the backend must atomically hold before
-  it's allowed to call OpenAI for Guess at all, closing the concurrency-cost window that
-  B2's completion CAS didn't cover (that CAS only guaranteed one *stored* result, not one
-  *OpenAI call*). Added directly to the existing `scores` row rather than a separate
-  reservation table — same rationale as the transitional design above: one flat row per
-  user/day is already the read/write unit for this game, and a second table would add a
-  join for no benefit here. **Do not assume this migration is applied** — see the schema
-  handoff for the exact block, verification query, and rollback.
+- ✅ **Done 2026-08-01**: added `guess_status` (`not_started`/`scoring`/`completed`/`failed`,
+  CHECK-constrained) and `guess_scoring_started_at` to `scores` (fixes B23) — an explicit
+  reservation the backend must atomically hold before it's allowed to call OpenAI for Guess
+  at all, closing the concurrency-cost window that B2's completion CAS didn't cover (that
+  CAS only guaranteed one *stored* result, not one *OpenAI call*). Added directly to the
+  existing `scores` row rather than a separate reservation table — same rationale as the
+  transitional design above.
+- ⏳ **Code done 2026-08-01, migration not yet applied**: added `status`
+  (`draft`/`ready`/`published`/`failed`), `generated_at`, `published_at`, `is_fallback`,
+  `fallback_source_id` to `daily_content`, plus two new tables:
+  `daily_content_generation_log` (audit trail for the generate/publish pipeline) and
+  `fallback_daily_content` (the emergency package pool) — see `docs/DEPLOYMENT.md` §3 and
+  `sql/migrations.sql`'s latest block. **Do not assume this migration is applied** — every
+  new backend test that depends on it is gated behind a skip check (see
+  `tests/conftest.py`) and currently skips, not fails.
 - Consider a `friends` table `status` column (`pending`/`accepted`) to support a real
   request/accept flow (fixes B11), plus the missing `DELETE /friends/{id}` endpoint.
 - Add a `username` uniqueness/change audit if usernames become editable (fixes B13) —
@@ -276,27 +289,25 @@ they block everything else:
 
 ## 6. Recommended hosted deployment architecture
 
-Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra investment):
+**✅ Designed and implemented 2026-08-01, not yet deployed** — see `docs/DEPLOYMENT.md` for
+the full hosting comparison (Render/Railway/Fly.io), recommendation (Render, ~$7/mo Starter),
+environment strategy, and deployment/rollback runbook. Summary of what changed since this
+section was first written:
 
-- **Backend hosting:** Fly.io or Render — both have a straightforward path from the existing
-  `Dockerfile`, support secrets management (env vars, not baked into the image), and offer
-  basic health checks. Either is a reasonable choice; pick based on whichever the team already
-  has familiarity with. Add a `HEALTHCHECK` to the Dockerfile and stop running as root (fixes
-  part of the Dockerfile finding).
-- **Scheduler reliability:** move the midnight job off in-process `APScheduler` (which dies
-  with the process) to the hosting platform's own cron/scheduled-job feature hitting the
-  existing admin-token-protected `POST /games/generate-daily-content` endpoint. This alone
-  fixes B5 without any application code change — the endpoint already exists and is
-  authenticated correctly.
-- **Environment separation:** introduce an `ENVIRONMENT` setting (`development`/`production`)
-  in `app/config.py`, and branch `CORSMiddleware`'s `allow_origins` off it (fixes B15) — allow
-  `*` only in development, a real allowlist (App Store app's origin isn't applicable here since
-  it's a native app calling a fixed API host, so this mainly matters for any web/admin surface).
-- **Observability:** add Sentry (or similar) for exception tracking on both the API routes and
-  the scheduler job specifically — the scheduler's existing `logger.exception()` call is the
-  natural hook point (fixes B17).
-- **Secrets:** move `OPENAI_API_KEY`, `SUPABASE_SECRET_KEY`, `ADMIN_TOKEN` into the hosting
-  platform's secret manager rather than a shipped `.env` (still fine for local dev).
+- **Backend hosting:** `render.yaml` added (1 web service + 2 cron jobs); `Dockerfile` now
+  runs as a non-root user, supports `$PORT`, and has a `HEALTHCHECK` against `/health`.
+- **Scheduler reliability:** the in-process `APScheduler` now only starts when
+  `ENVIRONMENT=development` (`app/main.py`) — staging/production rely on Render's Cron Jobs
+  hitting the new `/admin/generate-content` (ahead of time) and `/admin/publish-content` (at
+  the boundary) endpoints instead, fixing B5 without relying on one process's uptime.
+- **Environment separation:** `ENVIRONMENT`/`CORS_ALLOWED_ORIGINS`/`LOG_LEVEL` added to
+  `app/config.py`; CORS now defaults to no origins + no credentials (fixes B15).
+- **Observability:** structured logging (`app/logging_config.py`) plus `/health`,
+  `/health/ready`, and `/admin/content-status` (fixes B17 partially — still no external
+  paging/Sentry).
+- **Secrets:** `render.yaml` marks all real secrets `sync: false` (entered manually in the
+  Render dashboard, never committed); `.env.example` documents the required keys without
+  real values; `require_admin_token` now uses `secrets.compare_digest`.
 
 ---
 
@@ -307,10 +318,12 @@ Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra
    Maths' `answer` stays exposed by design (see rationale above).
 2. ~~**Fix B2 + add submission guards**~~ **✅ Done 2026-07-30** — resubmission now
    returns the original result instead of overwriting (see §5's schema change).
-3. **Deploy the backend** (fixes B14) — pick Fly.io/Render, wire the existing Dockerfile,
-   move the scheduler to the platform's cron hitting the admin endpoint (fixes B5 for free).
-4. **Point iOS at the real backend URL** (fixes B20) — make it environment-driven, not hardcoded.
-5. **Lock down CORS** (fixes B15) once a real environment split exists.
+3. ⏳ **Deploy the backend** (fixes B14) — plan, `render.yaml`, and Dockerfile are ready
+   (`docs/DEPLOYMENT.md`); **actually creating the Render resources still needs your explicit
+   approval** since it's a billable action.
+4. ⏳ **Point iOS at the real backend URL** (fixes B20) — `Config.swift` + xcconfig files are
+   ready with explicit placeholders; blocked on #3 for a real URL to put in them.
+5. ~~**Lock down CORS**~~ **✅ Done 2026-08-01** (fixes B15).
 6. **Add account deletion** (fixes B19) — iOS settings entry point + backend endpoint that
    removes/anonymizes the user's rows across `users`/`scores`/`friends`.
 7. **Add `PrivacyInfo.xcprivacy`** (fixes B18) reflecting the actual data collected (User ID,
@@ -320,16 +333,20 @@ Given the current stack (FastAPI + Docker + Supabase + OpenAI, no existing infra
    silent data loss.
 9. **Friends: add accept/decline + unfriend** (fixes B11/B12).
 10. **Add basic rate limiting** (fixes B16) on `submit-guess` at minimum.
-11. **Add Sentry/error tracking** (fixes B17) for the scheduler and API.
-12. **Content pipeline hardening** (B4/B6/B7) — pre-generate a few hours early, add a retry
-    with backoff, add a minimal moderation check before publish.
+11. **Add Sentry/error tracking** (fixes B17) for the scheduler and API — structured
+    logging + `/health`/`/admin/content-status` exist now; still no external paging.
+12. ~~**Content pipeline hardening**~~ **✅ Done (design) 2026-08-01** (fixes B4/B7; B6
+    moderation still open) — pre-generation, retry, and fallback all implemented; takes
+    effect once #3 is deployed and the cron jobs run.
 13. **Lower iOS deployment target** (fixes B21) unless a specific API dependency is found.
-14. **Decide and document the daily-reset timezone** (fixes B22) — likely UTC, needs an
-    explicit decision recorded, not just left implicit.
+14. ~~**Decide and document the daily-reset timezone**~~ **✅ Done 2026-08-01** (fixes
+    B22) — UTC, see `app/time_utils.py`.
 15. **Username editability** (fixes B13) — product improvement, not a blocker, but cheap
     relative to its value once the account model is otherwise stable.
 16. ~~**Close the Guess concurrency-cost window**~~ **✅ Implemented 2026-08-01** (fixes
-    B23) — migration required, not yet applied; see §5 and B23 above.
+    B23) — migration applied 2026-08-01; see §5 and B23 above.
+17. ⏳ **Seed the emergency fallback pool** (`POST /admin/seed-fallback-content`) and
+    apply the pending schema migration (§5) before relying on #12 in production.
 
 ---
 

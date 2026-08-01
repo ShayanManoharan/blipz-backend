@@ -38,10 +38,30 @@ OpenAI via an explicit `guess_status` state machine (`not_started` → `scoring`
 `completed`/`failed`) before ever calling it; a concurrent request that finds scoring
 already in progress briefly re-polls (bounded ~2s) and never calls OpenAI itself. Failed
 scoring releases the reservation for a clean retry; a reservation stuck in `scoring`
-past 30s (e.g. a crashed process) is safely reclaimable. **Migration required, not yet
-applied** — `sql/migrations.sql`'s latest block (`guess_status`, `guess_scoring_started_at`).
-`tests/test_guess_scoring_reservation.py` is fully written and currently all-skipped
-(not failing) pending that migration. See `PRODUCTION_AUDIT.md` B23 for the full design.
+past 30s (e.g. a crashed process) is safely reclaimable. **Migration applied 2026-08-01**
+— full suite passes with 0 skips. Live-verified via a temporarily-instrumented scorer
+(reverted after) against the real running server: exactly one OpenAI call under real
+concurrent requests, the 202-in-progress path, failure recovery, and stale-reservation
+reclaim. iOS now handles the `202 scoring_in_progress` response with bounded polling and
+a "Scoring your guess…" state, cancelled cleanly if the view disappears. See
+`PRODUCTION_AUDIT.md` B23 for the full design.
+
+**Hosted deployment (2026-08-01, B14/B20/B22, plan + code ready — not yet deployed):**
+UTC is now the explicit day boundary everywhere (fixes B22); the daily-content pipeline
+is split into idempotent `generate`/`publish` steps with full validation and a
+fallback-package system so a failed generation never leaves a day empty (fixes B4/B5/B7,
+design-complete); the in-process scheduler now only runs in local development, with
+production/staging meant to rely on an external cron (Render Cron Jobs in the
+recommended plan) hitting new admin-token-protected `/admin/*` endpoints; CORS no longer
+allows wildcard-plus-credentials (fixes B15); structured logging plus `/health`,
+`/health/ready`, and `/admin/content-status` exist (fixes B17 partially). iOS gained an
+environment-aware `Config.swift` (Debug/Staging/Release via `Blipz/Configs/*.xcconfig`)
+with explicit placeholders for the not-yet-real Staging/Production URLs, rather than a
+guessed one. **Nothing has been deployed** — see `docs/DEPLOYMENT.md` for the full
+hosting comparison (Render recommended, ~$7/mo), runbook, and required manual steps
+(applying the pending migration, wiring the xcconfig files into Xcode's build settings,
+approving the actual Render deployment). See `PRODUCTION_AUDIT.md` B14/B20/B22 and
+§5/§6 for details.
 
 ## Core gameplay
 

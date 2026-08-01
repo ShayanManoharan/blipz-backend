@@ -1,0 +1,58 @@
+# Render Blueprint — see docs/DEPLOYMENT.md for the full deployment/rollback runbook.
+# This file describes infrastructure only; it does not deploy anything by itself.
+# Render deploys from it only once you connect this repo in the Render dashboard and
+# explicitly approve creating these (billable) resources — nothing here runs on its own.
+
+services:
+  - type: web
+    name: blipz-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter  # always-on, no cold starts — see docs/DEPLOYMENT.md's hosting comparison
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: ""
+
+  # Prepares tomorrow's content ahead of the UTC day boundary — separate from
+  # publication so a slow/failed generation never blocks today's content from staying
+  # live. Time chosen well before 00:00 UTC to leave room for a retry.
+  - type: cron
+    name: blipz-generate-tomorrow
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    schedule: "0 22 * * *"  # 22:00 UTC daily
+    dockerCommand: >
+      sh -c "curl -sf -X POST https://$RENDER_EXTERNAL_HOSTNAME/admin/generate-content
+      -H \"x-admin-token: $ADMIN_TOKEN\""
+    envVars:
+      - key: ADMIN_TOKEN
+        sync: false
+
+  # Activates whatever was generated (or a fallback, if generation failed) at the
+  # actual UTC day boundary.
+  - type: cron
+    name: blipz-publish-today
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    schedule: "5 0 * * *"  # 00:05 UTC daily — a few minutes after the boundary
+    dockerCommand: >
+      sh -c "curl -sf -X POST https://$RENDER_EXTERNAL_HOSTNAME/admin/publish-content
+      -H \"x-admin-token: $ADMIN_TOKEN\""
+    envVars:
+      - key: ADMIN_TOKEN
+        sync: false

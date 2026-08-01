@@ -6,6 +6,8 @@
 #   "sb_publishable_" key format confirms it's on the new key system, which pairs with
 #   asymmetric signing keys rather than a legacy shared HS256 secret.
 
+import secrets
+
 import jwt
 from fastapi import Header, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -18,7 +20,10 @@ _jwks_client = jwt.PyJWKClient(f"{settings.supabase_url}/auth/v1/.well-known/jwk
 
 
 def require_admin_token(x_admin_token: str = Header(...)) -> None:
-    if x_admin_token != settings.admin_token:
+    # Constant-time comparison — a plain `!=` leaks timing information proportional to
+    # how many leading characters match, which is a real (if narrow) attack surface for
+    # a secret compared on every protected admin/cron request.
+    if not secrets.compare_digest(x_admin_token, settings.admin_token):
         raise HTTPException(status_code=401, detail="Invalid admin token")
 
 

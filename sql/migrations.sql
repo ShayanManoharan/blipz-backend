@@ -129,3 +129,71 @@ ALTER TABLE scores
 -- column default — purely cosmetic/consistency, guess_completed remains the actual
 -- source of truth for "is Guess done" everywhere in the application.
 UPDATE scores SET guess_status = 'completed' WHERE guess_completed = TRUE;
+
+-- Hosted-deployment slice: separates generating a day's content from publishing it
+-- (see PRODUCTION_AUDIT.md's deployment plan). `daily_content.date` remains the
+-- canonical "content_date" (already UNIQUE NOT NULL since the very first migration —
+-- one row per date was already guaranteed at the DB level). `status` gates whether
+-- GET /games/daily-content may serve a row at all, independent of whether it exists:
+-- a row can be fully generated ('ready') well before its date, without going live,
+-- and publication is a separate, idempotent, explicitly-triggered step.
+ALTER TABLE daily_content
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'published'
+    CHECK (status IN ('draft', 'ready', 'published', 'failed')),
+  ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
+  ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+  ADD COLUMN IF NOT EXISTS fallback_source_id UUID;
+
+-- Backfill: every pre-existing row was implicitly "live" the moment it was inserted
+-- (the old generate_daily_content() had no draft/publish distinction), so all
+-- existing rows are already correctly defaulted to 'published' above. This UPDATE
+-- only fills generated_at/published_at for observability on old rows, using
+-- created_at as the best available approximation — it does not change what content
+-- is served.
+UPDATE daily_content
+SET generated_at = created_at, published_at = created_at
+WHERE generated_at IS NULL;
+
+-- Audit trail for the generate/publish pipeline — deliberately a separate table from
+-- daily_content so a failed attempt never risks violating daily_content's
+-- UNIQUE(date) constraint or leaving a partial/placeholder content row. Powers the
+-- "latest generation status" observability endpoint.
+CREATE TABLE IF NOT EXISTS daily_content_generation_log (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  content_date DATE NOT NULL,
+  operation TEXT NOT NULL CHECK (operation IN ('generate', 'publish')),
+  status TEXT NOT NULL CHECK (status IN ('success', 'failed')),
+  used_fallback BOOLEAN NOT NULL DEFAULT FALSE,
+  error_message TEXT,
+  attempted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS daily_content_generation_log_content_date_idx
+  ON daily_content_generation_log (content_date, attempted_at DESC);
+
+-- Small prevalidated emergency pool used when real generation fails for a date that's
+-- about to be needed. `active = FALSE` lets a problematic fallback package be pulled
+-- from rotation without deleting its history. `last_used_date`/`times_used` support
+-- picking the least-recently-used entry so the same fallback doesn't repeat on
+-- consecutive days when another active entry is available.
+CREATE TABLE IF NOT EXISTS fallback_daily_content (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  label TEXT NOT NULL,
+  image_url TEXT NOT NULL,
+  image_prompt TEXT NOT NULL,
+  trivia_questions JSONB NOT NULL,
+  math_problems JSONB NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  last_used_date DATE,
+  times_used INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- NOTE: this migration does not seed fallback_daily_content — no rows means the
+-- fallback system has nothing to activate (publish_content_for_date will surface a
+-- clear "no fallback available" failure rather than silently doing nothing). Seed via
+-- POST /admin/seed-fallback-content (see app/routers/admin_content.py), which inserts
+-- hand-authored trivia/math and a static placeholder image URL — it does not call
+-- OpenAI, so seeding never incurs image-generation cost. Replacing the placeholder
+-- image with a real generated one later is a separate, explicit, approved action.

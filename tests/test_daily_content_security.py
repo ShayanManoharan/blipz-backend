@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from app.auth import get_current_user_id
 from app.database import supabase
 from app.main import app
+from tests.conftest import requires_daily_content_status_migration
 
 # This project has no test-DB isolation — the existing suite already exercises the
 # real configured Supabase project (see test_main.py). Submitting a score requires a
@@ -80,6 +81,7 @@ def test_daily_content_requires_authentication():
     assert response.status_code in (401, 403)
 
 
+@requires_daily_content_status_migration
 def test_daily_content_authenticated_anonymous_user_can_fetch():
     _override_auth()
     try:
@@ -93,6 +95,7 @@ def test_daily_content_authenticated_anonymous_user_can_fetch():
     assert response.status_code in (200, 404)
 
 
+@requires_daily_content_status_migration
 def test_daily_content_does_not_leak_forbidden_fields():
     _override_auth()
     try:
@@ -117,6 +120,7 @@ def test_daily_content_does_not_leak_forbidden_fields():
     # PublicMathProblem in app/models/schemas.py) — deliberately not asserted absent.
 
 
+@requires_daily_content_status_migration
 def test_daily_content_shape_matches_ios_decodable_model():
     # Pinned exactly to Blipz/Models/DailyContent.swift's Decodable structs. If this
     # test needs updating, the iOS model needs the matching update too.
@@ -140,6 +144,7 @@ def test_daily_content_shape_matches_ios_decodable_model():
 
 @requires_migration
 @requires_guess_status_migration
+@requires_daily_content_status_migration
 @patch("app.routers.games.score_guess")
 def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_score_guess):
     mock_score_guess.return_value = 5.0
@@ -168,6 +173,7 @@ def test_submit_guess_scores_via_server_fetched_prompt_not_client_supplied(mock_
 
 
 @requires_migration
+@requires_daily_content_status_migration
 def test_submit_trivia_has_no_client_supplied_correctness_field():
     # TriviaAnswerSubmit only ever accepts question_id + selected_option_id — there is
     # no field for a client to assert its own correctness/score, so grading is

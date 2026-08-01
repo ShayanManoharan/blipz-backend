@@ -22,6 +22,7 @@ from app.database import supabase
 from app.main import app
 from app.rate_limit import limiter
 from app.routers.games import _trivia_question_id, _trivia_correct_option_id
+from tests.conftest import requires_daily_content_status_migration
 
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
 
@@ -54,10 +55,13 @@ def _migration_applied() -> bool:
         return False
 
 
-pytestmark = pytest.mark.skipif(
-    not _migration_applied(),
-    reason="scores.maths_completed etc. not present — run sql/migrations.sql's latest block first",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        not _migration_applied(),
+        reason="scores.maths_completed etc. not present — run sql/migrations.sql's latest block first",
+    ),
+    requires_daily_content_status_migration,
+]
 
 
 def _guess_status_migration_applied() -> bool:

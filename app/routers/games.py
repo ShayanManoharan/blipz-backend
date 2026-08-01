@@ -11,6 +11,7 @@
 # instead of a client-side convention.
 
 import asyncio
+import logging
 from datetime import date, datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request
@@ -22,6 +23,7 @@ from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
 from app.rate_limit import limiter
+from app.time_utils import utc_today
 from app.models.schemas import (
     MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit,
     PublicDailyContentResponse, PublicMathProblem, PublicTriviaQuestion,
@@ -29,6 +31,7 @@ from app.models.schemas import (
 )
 
 router = APIRouter()
+logger = logging.getLogger("blipz.games")
 
 POSTGRES_UNIQUE_VIOLATION = "23505"
 
@@ -311,8 +314,8 @@ async def trigger_daily_content():
 
 @router.get("/daily-content", response_model=PublicDailyContentResponse)
 def get_daily_content(user_id: str = Depends(get_current_user_id)):
-    today = date.today().isoformat()
-    result = supabase.table("daily_content").select("*").eq("date", today).execute()
+    today = utc_today().isoformat()
+    result = supabase.table("daily_content").select("*").eq("date", today).eq("status", "published").execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="No content generated yet for today")
 
@@ -349,7 +352,7 @@ def _guess_completed_response(user_id: str, today: str, row: dict) -> dict:
 @router.post("/submit-guess")
 @limiter.limit("10/minute")
 async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = Depends(get_current_user_id)):
-    today = date.today().isoformat()
+    today = utc_today().isoformat()
 
     # Atomically reserves the right to call OpenAI at all — this is the fix for B23's
     # concurrency-cost window. See acquire_guess_scoring_slot's docstring and
@@ -381,7 +384,7 @@ async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = 
     # outcome == "acquired" — we now exclusively own the right to call OpenAI for
     # today's Guess attempt. No other request can reach this branch until we either
     # complete it or release it as failed below.
-    content = supabase.table("daily_content").select("image_prompt").eq("date", today).execute()
+    content = supabase.table("daily_content").select("image_prompt").eq("date", today).eq("status", "published").execute()
     if not content.data:
         _release_guess_reservation_as_failed(row["id"])
         raise HTTPException(status_code=404, detail="No content found for today")
@@ -391,7 +394,10 @@ async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = 
 
     try:
         score = await score_guess(body.guess, actual_prompt)
-    except Exception:
+    except Exception as e:
+        # Log the exception type/message (diagnostic value) but never the user's
+        # guess text or the hidden image prompt.
+        logger.warning("Guess scoring failed (user_id=%s): %s", user_id, e)
         # Release the reservation rather than leaving it stuck in "scoring" — the
         # user's daily Guess attempt is not consumed, and a resubmission (naturally
         # throttled by the rate limiter above) will retry cleanly. No internal
@@ -420,9 +426,9 @@ async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = 
 
 @router.post("/submit-maths")
 def submit_maths(body: MathsScoreSubmit, user_id: str = Depends(get_current_user_id)):
-    today = date.today().isoformat()
+    today = utc_today().isoformat()
 
-    content = supabase.table("daily_content").select("math_problems").eq("date", today).execute()
+    content = supabase.table("daily_content").select("math_problems").eq("date", today).eq("status", "published").execute()
     if not content.data:
         raise HTTPException(status_code=404, detail="No content found for today")
 
@@ -456,9 +462,9 @@ def submit_maths(body: MathsScoreSubmit, user_id: str = Depends(get_current_user
 
 @router.post("/submit-trivia")
 def submit_trivia(body: TriviaScoreSubmit, user_id: str = Depends(get_current_user_id)):
-    today = date.today().isoformat()
+    today = utc_today().isoformat()
 
-    content = supabase.table("daily_content").select("trivia_questions").eq("date", today).execute()
+    content = supabase.table("daily_content").select("trivia_questions").eq("date", today).eq("status", "published").execute()
     if not content.data:
         raise HTTPException(status_code=404, detail="No content found for today")
 
@@ -501,13 +507,13 @@ def submit_trivia(body: TriviaScoreSubmit, user_id: str = Depends(get_current_us
 
 @router.get("/trivia-review", response_model=TriviaReviewResponse)
 def get_trivia_review(user_id: str = Depends(get_current_user_id)):
-    today = date.today().isoformat()
+    today = utc_today().isoformat()
 
     existing = get_today_score_row(user_id, today)
     if not existing or not existing.get("trivia_completed"):
         raise HTTPException(status_code=404, detail="Trivia not completed yet today")
 
-    content = supabase.table("daily_content").select("trivia_questions").eq("date", today).execute()
+    content = supabase.table("daily_content").select("trivia_questions").eq("date", today).eq("status", "published").execute()
     if not content.data:
         raise HTTPException(status_code=404, detail="No content found for today")
 
