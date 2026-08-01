@@ -249,13 +249,20 @@ they block everything else:
   existing `scores` row rather than a separate reservation table — same rationale as the
   transitional design above.
 - ⏳ **Code done 2026-08-01, migration not yet applied**: added `status`
-  (`draft`/`ready`/`published`/`failed`), `generated_at`, `published_at`, `is_fallback`,
-  `fallback_source_id` to `daily_content`, plus two new tables:
-  `daily_content_generation_log` (audit trail for the generate/publish pipeline) and
-  `fallback_daily_content` (the emergency package pool) — see `docs/DEPLOYMENT.md` §3 and
-  `sql/migrations.sql`'s latest block. **Do not assume this migration is applied** — every
-  new backend test that depends on it is gated behind a skip check (see
-  `tests/conftest.py`) and currently skips, not fails.
+  (`draft`/`ready`/`published`/`failed`, **defaults to `draft`**), `generated_at`,
+  `published_at`, `is_fallback`, `fallback_source_id` to `daily_content`, plus two new
+  tables: `daily_content_generation_log` (audit trail for the generate/publish
+  pipeline) and `fallback_daily_content` (the emergency package pool) — see
+  `docs/DEPLOYMENT.md` §3 and `sql/migrations.sql`'s latest block. The `draft` default
+  is a deliberate fail-safe: an insert that forgets to specify `status` can never
+  accidentally become publicly servable — only an explicit transition to `published`
+  (via `publish_content_for_date`/`activate_fallback_for_date`) makes a row visible to
+  `GET /games/daily-content`. Confirmed neither insert/upsert path in
+  `content_generator.py` relies on this default — both always set `status` explicitly.
+  The 5 pre-existing rows are explicitly backfilled to `published` (not left to the
+  new default) since they were historically already live. **Do not assume this
+  migration is applied** — every new backend test that depends on it is gated behind a
+  skip check (see `tests/conftest.py`) and currently skips, not fails.
 - Consider a `friends` table `status` column (`pending`/`accepted`) to support a real
   request/accept flow (fixes B11), plus the missing `DELETE /friends/{id}` endpoint.
 - Add a `username` uniqueness/change audit if usernames become editable (fixes B13) —

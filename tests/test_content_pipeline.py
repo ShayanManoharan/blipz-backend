@@ -16,10 +16,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.agents import content_generator as cg
+from app.auth import get_current_user_id
 from app.database import supabase
 from app.main import app
 from app.time_utils import utc_today, utc_tomorrow
 from tests.conftest import requires_daily_content_status_migration
+
+REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
 
 TEST_CONTENT_DATE = date(2099, 6, 15)
 TEST_CONTENT_DATE_2 = date(2099, 6, 16)
@@ -305,3 +308,116 @@ def test_fallback_does_not_repeat_previous_day_when_alternative_exists():
 
 def test_utc_today_and_tomorrow_are_consistent():
     assert utc_tomorrow() == utc_today() + timedelta(days=1)
+
+
+# --- status defaults to 'draft', and only 'published' is player-visible -------------
+# See PRODUCTION_AUDIT.md's deployment plan: 'draft' is the fail-safe default so an
+# insert that forgets to specify status can never accidentally become publicly
+# servable — only an explicit transition to 'published' (via publish_content_for_date
+# or activate_fallback_for_date) makes a row visible to GET /games/daily-content.
+
+HISTORICAL_PUBLISHED_DATES = ["2026-05-31", "2026-06-01", "2026-07-29", "2026-07-30", "2026-07-31"]
+
+
+@contextmanager
+def _with_todays_status(new_status: str):
+    """
+    Temporarily forces today's (UTC) daily_content row to `new_status`, restoring the
+    original row/status afterward — or, if no row exists for today yet, inserts a
+    throwaway one and removes it afterward. Mirrors the same swap-and-restore pattern
+    tests/test_trivia_grading.py already uses for today's real content row.
+    """
+    today_str = utc_today().isoformat()
+    existing = supabase.table("daily_content").select("*").eq("date", today_str).execute().data
+
+    if existing:
+        original_status = existing[0]["status"]
+        supabase.table("daily_content").update({"status": new_status}).eq("date", today_str).execute()
+        try:
+            yield
+        finally:
+            supabase.table("daily_content").update({"status": original_status}).eq("date", today_str).execute()
+    else:
+        supabase.table("daily_content").insert({
+            "date": today_str,
+            "image_url": "https://example.invalid/test.png",
+            "image_prompt": "test prompt",
+            "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+            "math_problems": cg.generate_math_problems(20),
+            "status": new_status,
+        }).execute()
+        try:
+            yield
+        finally:
+            supabase.table("daily_content").delete().eq("date", today_str).execute()
+
+
+def _auth():
+    app.dependency_overrides[get_current_user_id] = lambda: REAL_TEST_USER_ID
+
+
+def _clear_auth():
+    app.dependency_overrides.pop(get_current_user_id, None)
+
+
+@requires_daily_content_status_migration
+def test_insert_omitting_status_becomes_draft():
+    date_str = TEST_CONTENT_DATE.isoformat()
+    supabase.table("daily_content").insert({
+        "date": date_str,
+        "image_url": "https://example.invalid/test.png",
+        "image_prompt": "test prompt",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(20),
+        # status deliberately omitted — must fall back to the column DEFAULT, not
+        # whatever the application layer would have chosen.
+    }).execute()
+
+    row = supabase.table("daily_content").select("status").eq("date", date_str).execute().data[0]
+    assert row["status"] == "draft"
+
+
+@requires_daily_content_status_migration
+def test_draft_content_is_not_player_visible():
+    with _with_todays_status("draft"):
+        _auth()
+        try:
+            with TestClient(app) as client:
+                response = client.get("/games/daily-content")
+        finally:
+            _clear_auth()
+    assert response.status_code == 404
+
+
+@requires_daily_content_status_migration
+def test_ready_content_is_not_player_visible():
+    with _with_todays_status("ready"):
+        _auth()
+        try:
+            with TestClient(app) as client:
+                response = client.get("/games/daily-content")
+        finally:
+            _clear_auth()
+    assert response.status_code == 404
+
+
+@requires_daily_content_status_migration
+def test_published_content_is_player_visible():
+    with _with_todays_status("published"):
+        _auth()
+        try:
+            with TestClient(app) as client:
+                response = client.get("/games/daily-content")
+        finally:
+            _clear_auth()
+    assert response.status_code == 200
+
+
+@requires_daily_content_status_migration
+def test_historical_rows_are_published_after_backfill():
+    rows = supabase.table("daily_content").select("date, status").in_(
+        "date", HISTORICAL_PUBLISHED_DATES
+    ).execute().data
+    assert len(rows) == len(HISTORICAL_PUBLISHED_DATES)
+    for row in rows:
+        assert row["status"] == "published", f"{row['date']} should be 'published' after backfill, got {row['status']!r}"

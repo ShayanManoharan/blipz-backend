@@ -137,20 +137,31 @@ UPDATE scores SET guess_status = 'completed' WHERE guess_completed = TRUE;
 -- GET /games/daily-content may serve a row at all, independent of whether it exists:
 -- a row can be fully generated ('ready') well before its date, without going live,
 -- and publication is a separate, idempotent, explicitly-triggered step.
+--
+-- DEFAULT is 'draft', not 'published': a fail-safe default for a production content
+-- pipeline means an insert that forgets to specify status can never accidentally
+-- become publicly servable. generate_content_for_date/activate_fallback_for_date
+-- always set status explicitly (never rely on this default) — see app/agents/
+-- content_generator.py. The 5 pre-existing rows are explicitly backfilled to
+-- 'published' below, not left to any default, since they were historically already live.
 ALTER TABLE daily_content
-  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'published'
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft'
     CHECK (status IN ('draft', 'ready', 'published', 'failed')),
   ADD COLUMN IF NOT EXISTS generated_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ,
   ADD COLUMN IF NOT EXISTS is_fallback BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS fallback_source_id UUID;
 
--- Backfill: every pre-existing row was implicitly "live" the moment it was inserted
--- (the old generate_daily_content() had no draft/publish distinction), so all
--- existing rows are already correctly defaulted to 'published' above. This UPDATE
--- only fills generated_at/published_at for observability on old rows, using
--- created_at as the best available approximation — it does not change what content
--- is served.
+-- Explicit backfill: every row that existed before this migration ran was implicitly
+-- "live" the moment it was inserted (the old generate_daily_content() had no
+-- draft/publish distinction) — so every row that just landed on the 'draft' default
+-- above is, in fact, one of those historically-live rows and must be moved to
+-- 'published' explicitly. Nothing inserted after this migration can ever be caught by
+-- this UPDATE (it only ever runs once, as part of applying this migration).
+UPDATE daily_content
+SET status = 'published'
+WHERE status = 'draft';
+
 UPDATE daily_content
 SET generated_at = created_at, published_at = created_at
 WHERE generated_at IS NULL;
