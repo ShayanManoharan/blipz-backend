@@ -166,3 +166,37 @@ Same as staging, plus:
 8. Confirm the two Render Cron Jobs both show a successful run in the dashboard after
    their first scheduled fire.
 9. Confirm `ENVIRONMENT=production` in the running service's logs at startup.
+
+---
+
+## 7. iOS: one-time Xcode wiring for the environment-aware config
+
+`Blipz/Configs/{Shared,Debug,Staging,Release}.xcconfig` and the new `Config.swift`
+already exist in the repo (see `blipz-ios` commit `6d61741`) and are visible in Xcode's
+navigator, but attaching an `.xcconfig` to a build configuration — and adding the new
+"Staging" configuration itself — is a project-settings change in Xcode's own project
+model. That was deliberately **not** done by hand-editing `project.pbxproj`: that file
+has no safe text-based way to add a build configuration, and a bad edit risks
+corrupting the whole project with no easy way to detect it short of opening Xcode.
+These are standard, low-risk GUI steps instead:
+
+1. Select the **Blipz** project (top of the navigator) → the **Blipz** project (not
+   target) → **Info** tab → **Configurations**.
+2. Next to **Debug**, expand it and set the **Blipz** target's configuration file to
+   `Configs/Debug.xcconfig` (the dropdown will list it automatically).
+3. Do the same for **Release** → `Configs/Release.xcconfig`.
+4. Click **+** under Configurations → **Duplicate "Release" Configuration** → name it
+   **Staging** → set the **Blipz** target's configuration file to
+   `Configs/Staging.xcconfig`.
+5. (Optional, for one-click Staging builds) **Product → Scheme → Manage Schemes** →
+   select **Blipz** → **Duplicate** → rename to **Blipz Staging** → **Edit Scheme** →
+   for **Run** and **Archive**, set **Build Configuration** to **Staging**.
+6. Build once for each configuration (Debug, Staging, Release) to confirm nothing
+   broke — `Config.swift` will `fatalError` at **launch** (not build time) if a
+   non-Debug configuration is missing `APIBaseURL` or still has the placeholder value,
+   so a quick run (not just a build) of the Staging/Release scheme is worth doing once
+   you have a real URL to put in those files.
+
+After deploying (§5), replace the placeholder line in `Staging.xcconfig` and/or
+`Release.xcconfig` with the real Render URL and commit that change — that's the entire
+remaining step once hosting exists.
