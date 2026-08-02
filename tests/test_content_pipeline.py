@@ -263,13 +263,24 @@ def test_publish_without_ready_content_activates_fallback():
 
 @requires_daily_content_status_migration
 def test_publish_without_ready_content_and_without_fallback_raises():
-    # No fallback rows exist (cleaned by the autouse fixture) — must fail clearly
-    # rather than silently publishing nothing.
-    with pytest.raises(cg.ContentGenerationError):
-        cg.publish_content_for_date(TEST_CONTENT_DATE)
+    # A real environment may already have a genuine, persistent fallback pool seeded
+    # (see POST /admin/seed-fallback-content) — this test needs "no active fallback
+    # exists" specifically, so it temporarily deactivates whatever's currently active
+    # rather than assuming the pool is empty, and restores it afterward either way.
+    active_rows = supabase.table("fallback_daily_content").select("id").eq("active", True).execute().data
+    active_ids = [row["id"] for row in active_rows]
+    if active_ids:
+        supabase.table("fallback_daily_content").update({"active": False}).in_("id", active_ids).execute()
 
-    rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
-    assert rows == []
+    try:
+        with pytest.raises(cg.ContentGenerationError):
+            cg.publish_content_for_date(TEST_CONTENT_DATE)
+
+        rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
+        assert rows == []
+    finally:
+        if active_ids:
+            supabase.table("fallback_daily_content").update({"active": True}).in_("id", active_ids).execute()
 
 
 @requires_daily_content_status_migration
