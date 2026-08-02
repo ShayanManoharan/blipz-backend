@@ -120,24 +120,45 @@ validation error — this already works today (`app/config.py`), no extra code n
 
 ## 5. Deployment steps (Render)
 
-1. Apply the pending Supabase migration (`sql/migrations.sql`'s latest block — see the
-   handoff format used in prior migrations of this project) **before** deploying code
-   that depends on it, so there's never a window where deployed code expects columns
-   that don't exist yet.
+Two separate blueprint files so staging and production can never be deployed together
+by accident: **`render.staging.yaml`** (use now) and **`render.yaml`** (production —
+not yet approved, see below).
+
+### Staging
+
+1. Apply the pending Supabase migration (`sql/migrations.sql`'s latest block) **before**
+   deploying code that depends on it, so there's never a window where deployed code
+   expects columns that don't exist yet. (Already done as of 2026-08-02 — this applies
+   to future migrations too.)
 2. Push this branch; in the Render dashboard, "New +" → "Blueprint" → point at this
-   repo → Render reads `render.yaml` and shows the 3 resources it will create (1 web
-   service, 2 cron jobs).
+   repo → **select `render.staging.yaml`** (Render lets you pick which blueprint file
+   to use) → it shows the 3 resources it will create: `blipz-backend-staging` (web,
+   Free plan), `blipz-generate-tomorrow-staging` and `blipz-publish-today-staging`
+   (cron jobs).
 3. Fill in the `sync: false` secrets (`SUPABASE_URL`, `SUPABASE_SECRET_KEY`,
    `SUPABASE_ANON_KEY`, `OPENAI_API_KEY`, `ADMIN_TOKEN`) in the dashboard — never in
-   `render.yaml` itself.
-4. Approve creation — **this is the billable-resource step; do not do this without
+   the YAML file itself. Staging can reuse the same Supabase project as local dev
+   (no separate staging Supabase project exists yet — see §2's note).
+4. Approve creation — **this is the billable-resource step (though the web service's
+   Free plan itself costs nothing — see the cost note below); do not do this without
    explicit go-ahead.**
-5. Once deployed, run the staging smoke test (below) against the new HTTPS URL before
-   pointing any real iOS build at it.
-6. Update iOS's Staging/Release xcconfig with the real hosted URL (see §7) — a
-   separate, explicit step; nothing here inserts a fake or guessed URL automatically.
+5. Once deployed, run the staging smoke test (§8 below) against the new HTTPS URL.
+6. Update iOS's `Staging.xcconfig` with the real staging URL (see §7) — a separate,
+   explicit step; nothing here inserts a fake or guessed URL automatically.
 
-## Rollback procedure
+**Staging cost:** the web service on Render's **Free** plan is **$0/mo** (cold starts
+after ~15 min idle — acceptable for internal testing, not for anything time-sensitive).
+The two cron jobs are lightweight (one HTTPS POST per run) and fall well within Render's
+free/low-cost tier for scheduled jobs. **Expect roughly $0–1/mo for staging.**
+
+### Production (not yet approved — do not deploy from `render.yaml` without explicit go-ahead)
+
+Same steps, using `render.yaml` instead: `plan: starter` (~$7/mo, always-on, no cold
+starts — matters for real users), `ENVIRONMENT=production`, and its own separate set of
+Render secrets (can be the same Supabase project, but a distinct `ADMIN_TOKEN` is
+recommended so staging and production don't share an admin secret).
+
+## 6. Rollback procedure
 
 - **Bad deploy**: Render keeps prior deploys — "Rollback" in the dashboard to the last
   known-good deploy. No database change is tied to a deploy by default, so this is safe
@@ -148,28 +169,57 @@ validation error — this already works today (`app/config.py`), no extra code n
 - **Bad published content**: `POST /admin/replace-content?content_date=YYYY-MM-DD`
   regenerates and republishes that date without waiting for the next cron cycle.
 
-## Staging smoke test
+## 7. Smoke-test checklist
 
-1. `GET /health` → `200 {"status": "ok"}`
-2. `GET /health/ready` → `200 {"status": "ready"}`
-3. `POST /admin/generate-content` with a valid `x-admin-token` → `ready`
-4. `POST /admin/publish-content` → `published`
-5. Authenticated `GET /games/daily-content` (real Supabase anon JWT) → 200, correct
-   shape, no forbidden fields (same checks as `tests/test_daily_content_security.py`)
-6. Point a Staging-configured iOS build at the URL; play all three games end to end.
+Run against the deployed staging URL (`https://blipz-backend-staging.onrender.com` or
+whatever Render assigns) with `x-admin-token` for admin calls and a real Supabase
+anonymous JWT for player-facing calls.
 
-## Production smoke test
+1. `GET /health` → `200 {"status": "ok", "environment": "staging"}`
+2. `GET /health/ready` → `200 {"status": "ready", "environment": "staging"}`
+3. Authenticated `GET /games/daily-content` → 200, correct shape, no forbidden fields
+   (same checks as `tests/test_daily_content_security.py`) — requires content already
+   published for today (step 7 below, or the historical/live data already present).
+4. **Guess scoring**: `POST /games/submit-guess` with a real guess → 200 with a score;
+   resubmit → `already_completed: true`, same score, no second OpenAI call.
+5. **Maths submission**: `POST /games/submit-maths` with correct answers computed from
+   the fetched `math_problems` → 200, `correct` matches; resubmit with wrong answers →
+   still returns the original result.
+6. **Trivia submission/review**: `POST /games/submit-trivia` → 200; `GET
+   /games/trivia-review` → 200 with matching selected/correct answer text.
+7. **Generate-ahead**: `POST /admin/generate-content` (defaults to tomorrow, UTC) →
+   `{"status": "ready"}`.
+8. **Duplicate generate**: repeat step 7 → same `{"status": "ready"}`, and confirm via
+   `/admin/content-status` that `recent_generation_log` did not grow (no new OpenAI
+   spend on the duplicate call).
+9. **Publish**: `POST /admin/publish-content` (defaults to today, UTC) →
+   `{"status": "published"}`.
+10. **Duplicate publish**: repeat step 9 → `{"message": "Already published", "status":
+    "published"}`.
+11. **Fallback**: pick a date with nothing generated (e.g. 3 days out),
+    `POST /admin/publish-content?content_date=YYYY-MM-DD` → `{"status": "published",
+    "used_fallback": true}` — requires the fallback pool to be seeded first
+    (`POST /admin/seed-fallback-content`, one-time).
+12. **`/admin/content-status`**: confirm `today`/`tomorrow` show the expected
+    status and the generation log reflects steps 7–11 accurately.
+13. **Restart behavior**: restart the Render service (dashboard "Manual Deploy" →
+    "Restart", or just wait for a routine redeploy) → confirm `GET /health` recovers
+    within Render's health-check grace period, and that startup logs show
+    `"In-process scheduler NOT started — relying on external cron"` (never started in
+    staging/production, so a restart can't accidentally duplicate a scheduled job).
+14. Point a Staging-configured iOS build at the URL; play all three games end to end.
 
-Same as staging, plus:
-7. Confirm `CORS_ALLOWED_ORIGINS` is empty (or exactly the intended list) — check
-   response headers from a browser devtools request, not just config.
-8. Confirm the two Render Cron Jobs both show a successful run in the dashboard after
-   their first scheduled fire.
-9. Confirm `ENVIRONMENT=production` in the running service's logs at startup.
+**Production-only additions** (once production is approved and deployed):
+
+15. Confirm `CORS_ALLOWED_ORIGINS` is empty (or exactly the intended list) — check
+    response headers from a browser devtools request, not just config.
+16. Confirm the two Render Cron Jobs both show a successful run in the dashboard after
+    their first scheduled fire.
+17. Confirm `ENVIRONMENT=production` in the running service's logs at startup.
 
 ---
 
-## 7. iOS: one-time Xcode wiring for the environment-aware config
+## 8. iOS: one-time Xcode wiring for the environment-aware config
 
 `Blipz/Configs/{Shared,Debug,Staging,Release}.xcconfig` and the new `Config.swift`
 already exist in the repo (see `blipz-ios` commit `6d61741`) and are visible in Xcode's
