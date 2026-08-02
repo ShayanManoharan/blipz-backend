@@ -183,10 +183,10 @@ sequenceDiagram
 | **B15** | ✅ **Fixed 2026-08-01.** `CORSMiddleware` now uses `settings.cors_allowed_origins_list` (empty by default) and only enables `allow_credentials` when origins are explicitly configured — never wildcard-origin-plus-credentials again. Native iOS doesn't depend on CORS at all; this only matters if browser-based tooling is added later. | `app/main.py`, `app/config.py` | None — revisit only if/when a web client is added, by setting `CORS_ALLOWED_ORIGINS` for that environment. |
 | **B16** | ✅ **Partially fixed 2026-07-30.** `POST /games/submit-guess` now has `@limiter.limit("10/minute")` (slowapi, keyed by IP). Still no rate limiting on any other route. Uses slowapi's default in-memory storage — **not sufficient once the backend runs on more than one process/instance** (each instance tracks its own counter independently); revisit with a shared store (e.g. Redis) before scaling out. Also keyed by IP, not authenticated user, as a simplification — doesn't perfectly isolate abuse by one user across IPs or protect users sharing an IP/NAT. | `app/rate_limit.py`, `app/routers/games.py` | Cost/abuse exposure remains on every other route; the fixed route's protection weakens under multi-instance deployment. |
 | **B17** | ✅ **Partially fixed 2026-08-01.** Structured logging now exists throughout the daily-content pipeline, Guess scoring failures, and app startup (`app/logging_config.py`) — never logging API keys, full tokens, raw guess text, or hidden image prompts. `GET /health`, `GET /health/ready`, and `GET /admin/content-status` give real operational visibility. **No external alerting (Sentry or similar) yet** — someone still has to look at logs/the status endpoint; nothing pages anyone automatically. | `app/logging_config.py`, `app/main.py`, `app/routers/admin_content.py` | Silent failures are now observable (not invisible) but still not proactively alerted on. |
-| **B18** | No `PrivacyInfo.xcprivacy` exists in the iOS app target. | confirmed absent, `Blipz/` | Apple requires this; App Store Connect submission will flag it. |
+| **B18** | ✅ **Fixed 2026-08-02.** Audited all 34 Blipz Swift files plus all 9 resolved SPM dependencies for required-reason API usage — zero direct usage in app code. Found one indirect usage: `supabase-swift`'s `Storage` module (a hard dependency of the `Supabase` product Blipz links) calls `FileManager.attributesOfItem(atPath:)` to size a file before upload. Confirmed via `strings` on the actual linked Debug/Release binaries that this selector is present in what ships, even though Blipz's own code never calls Storage upload (all image storage is server-side). Declared `NSPrivacyAccessedAPICategoryFileTimestamp` with reason `C617.1` (own-container internal use) — the first attempt used `0A2A.1`, which was wrong (that code is reserved for a third-party SDK declaring a wrapper *the app explicitly calls*, not for a linked-but-uninvoked code path); corrected after verifying Apple's actual reason definitions. `supabase-swift` ships no manifest of its own for this. | `Blipz/PrivacyInfo.xcprivacy` | None — verified present in both build products, valid plist, both configurations build. |
 | **B19** | No account-deletion flow exists anywhere in the iOS app (no settings screen, not even sign-out). | confirmed absent, `Blipz/Views/` | Apple App Review Guideline 5.1.1(v) requires in-app account deletion for apps that support account creation — anonymous Supabase accounts likely qualify. |
 | **B20** | ⏳ **Code ready 2026-08-01, URL handoff pending.** `Config.swift` is now environment-aware (Debug/Staging/Release via `Blipz/Configs/*.xcconfig`), with an explicit placeholder (`REPLACE_WITH_{STAGING,PRODUCTION}_BACKEND_URL`) for Staging/Release rather than a real or guessed URL — `fatalError`s at launch if the placeholder is still present, or if a non-Debug build somehow points at localhost. Debug keeps working locally via a compiled-in fallback. **Still blocked on B14** — there's no real hosted URL to put in these files until deployment happens. | `Blipz/Services/Config.swift`, `Blipz/Configs/*.xcconfig` | Compounds B14 until deployed; once deployed, updating the two placeholder lines is the entire remaining step. |
-| **B21** | iOS deployment target is `IPHONEOS_DEPLOYMENT_TARGET = 26.0` with no code dependency found that requires it. | `project.pbxproj` | Needlessly excludes the large majority of real-world iOS users for a v1.0 launch. |
+| **B21** | ✅ **Fixed 2026-08-02.** Audited every Swift file for API/language-version requirements — the real floor is iOS 17.0, driven by `@Observable` (used in all 7 view models), two/zero-parameter `.onChange(of:)` closures, and `.contentTransition(.numericText(value:))`. Lowered from `26.0` to `17.0` (not lower — `@Observable` is too architectural to rewrite for this). Verified via clean Debug and Release builds with zero availability errors, confirming no accidental iOS 18/26-only API usage exists anywhere in the app. | `project.pbxproj` | None — this was the previously-untested assumption; now empirically confirmed by a passing build at the new floor. |
 | **B22** | ✅ **Fixed 2026-08-01.** UTC is now the explicit, documented day boundary (`app/time_utils.py`) — every `date.today()` call in `games.py`/`content_generator.py` that determines "today"/"tomorrow" for game state or daily content was replaced with `utc_today()`/`utc_tomorrow()`. This was a decision that needed making, not a bug to "fix" further — see `docs/DEPLOYMENT.md` §3. | `app/time_utils.py`, `app/routers/games.py`, `app/agents/content_generator.py` | None — this is now a recorded, intentional choice rather than an accident of server locale. |
 
 ### Confirmed non-issues (checked, no finding)
@@ -214,7 +214,7 @@ they block everything else:
 3. **B14 + B20** — ⏳ plan + code ready (`docs/DEPLOYMENT.md`), **not yet deployed** — still
    blocks App Review until an actual HTTPS URL exists and iOS points at it. (Deployment + iOS)
 4. **B19** — no account-deletion flow. (iOS + Backend)
-5. **B18** — no `PrivacyInfo.xcprivacy`. (iOS)
+5. ~~**B18** — no `PrivacyInfo.xcprivacy`.~~ **✅ Fixed 2026-08-02** (iOS)
 6. **B8** — silent identity loss on session-restore failure, no recovery. (iOS)
 7. **B11** — non-consensual, unremovable friending. (Backend + iOS)
 8. ~~**B15** — wildcard CORS + credentials.~~ **✅ Fixed 2026-08-01** (Backend)
@@ -333,8 +333,8 @@ section was first written:
 5. ~~**Lock down CORS**~~ **✅ Done 2026-08-01** (fixes B15).
 6. **Add account deletion** (fixes B19) — iOS settings entry point + backend endpoint that
    removes/anonymizes the user's rows across `users`/`scores`/`friends`.
-7. **Add `PrivacyInfo.xcprivacy`** (fixes B18) reflecting the actual data collected (User ID,
-   username, scores) — straightforward now that the data model is well understood.
+7. ~~**Add `PrivacyInfo.xcprivacy`**~~ **✅ Done 2026-08-02** (fixes B18) — required-reason
+   API declarations only; the separate data-collection "nutrition label" is not yet done.
 8. **Fix identity durability** (B8/B9) — surface a real error/retry UI instead of silently
    minting a new identity; account-linking is a bigger future project, but at minimum stop the
    silent data loss.
@@ -345,7 +345,8 @@ section was first written:
 12. ~~**Content pipeline hardening**~~ **✅ Done (design) 2026-08-01** (fixes B4/B7; B6
     moderation still open) — pre-generation, retry, and fallback all implemented; takes
     effect once #3 is deployed and the cron jobs run.
-13. **Lower iOS deployment target** (fixes B21) unless a specific API dependency is found.
+13. ~~**Lower iOS deployment target**~~ **✅ Done 2026-08-02** (fixes B21) — 26.0 → 17.0,
+    the real floor set by `@Observable` and two other iOS-17-only features.
 14. ~~**Decide and document the daily-reset timezone**~~ **✅ Done 2026-08-01** (fixes
     B22) — UTC, see `app/time_utils.py`.
 15. **Username editability** (fixes B13) — product improvement, not a blocker, but cheap
@@ -374,11 +375,12 @@ Before inviting external testers:
 
 ## 9. Suggested App Store submission checklist
 
-- [ ] `PrivacyInfo.xcprivacy` present and accurate (B18)
+- [x] `PrivacyInfo.xcprivacy` present and accurate (B18) — required-reason APIs only;
+      data-collection nutrition label still not done
 - [ ] In-app account deletion implemented and tested end-to-end (B19)
 - [ ] Friends require some form of consent, and can be removed (B11)
 - [ ] Privacy policy URL set in App Store Connect and reachable
-- [ ] Deployment target reviewed for real-world device coverage (B21)
+- [x] Deployment target reviewed for real-world device coverage (B21) — 17.0
 - [ ] App Review can complete the full daily loop (sign in → play all 3 → leaderboard →
       friends → profile) against the live production backend
 - [ ] Screenshots, description, keywords, support URL prepared (currently not started)
