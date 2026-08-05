@@ -112,6 +112,13 @@ class TriviaReviewResponse(BaseModel):
     review: list[TriviaReviewQuestion]
 
 
+class GuessReviewResponse(BaseModel):
+    date: str
+    guess: str
+    score: float
+    actual_prompt: str
+
+
 # --- Leaderboard ---
 class LeaderboardEntry(BaseModel):
     username: str

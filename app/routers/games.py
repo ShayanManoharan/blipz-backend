@@ -27,7 +27,7 @@ from app.time_utils import utc_today
 from app.models.schemas import (
     MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit,
     PublicDailyContentResponse, PublicMathProblem, PublicTriviaQuestion,
-    TriviaReviewResponse, TriviaReviewQuestion,
+    TriviaReviewResponse, TriviaReviewQuestion, GuessReviewResponse,
 )
 
 router = APIRouter()
@@ -339,6 +339,13 @@ def get_daily_content(user_id: str = Depends(get_current_user_id)):
     )
 
 
+def _todays_actual_prompt(today: str) -> str | None:
+    content = supabase.table("daily_content").select("image_prompt").eq("date", today).eq("status", "published").execute()
+    if not content.data:
+        return None
+    return content.data[0]["image_prompt"]
+
+
 def _guess_completed_response(user_id: str, today: str, row: dict) -> dict:
     return {
         "user_id": user_id,
@@ -346,6 +353,9 @@ def _guess_completed_response(user_id: str, today: str, row: dict) -> dict:
         "score": row["guess_score"],
         "date": today,
         "already_completed": True,
+        # Safe to reveal here — this branch only runs once guess_completed is
+        # already true for today, same spoiler-safety rule trivia-review follows.
+        "actual_prompt": _todays_actual_prompt(today),
     }
 
 
@@ -421,6 +431,9 @@ async def submit_guess(request: Request, body: GuessScoreSubmit, user_id: str = 
         "score": row["guess_score"],
         "date": today,
         "already_completed": already_completed,
+        # Guess is completed as of this response (the write above just succeeded) —
+        # safe to reveal now, same rule as trivia-review and _guess_completed_response.
+        "actual_prompt": actual_prompt,
     }
 
 
@@ -556,3 +569,23 @@ def get_trivia_review(user_id: str = Depends(get_current_user_id)):
         )
 
     return TriviaReviewResponse(date=today, review=review)
+
+
+@router.get("/guess-review", response_model=GuessReviewResponse)
+def get_guess_review(user_id: str = Depends(get_current_user_id)):
+    today = utc_today().isoformat()
+
+    existing = get_today_score_row(user_id, today)
+    if not existing or not existing.get("guess_completed"):
+        raise HTTPException(status_code=404, detail="Guess not completed yet today")
+
+    actual_prompt = _todays_actual_prompt(today)
+    if actual_prompt is None:
+        raise HTTPException(status_code=404, detail="No content found for today")
+
+    return GuessReviewResponse(
+        date=today,
+        guess=existing.get("guess_text") or "",
+        score=existing["guess_score"],
+        actual_prompt=actual_prompt,
+    )
