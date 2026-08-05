@@ -1,13 +1,32 @@
 # users.py
 # Handles fetching the current authenticated user's profile
 
-from datetime import date
+from datetime import date, timedelta
 
 from fastapi import APIRouter, Depends
 from app.auth import get_current_user_id
 from app.database import supabase
 
 router = APIRouter()
+
+@router.get("/me/history")
+def get_me_history(days: int = 5, user_id: str = Depends(get_current_user_id)):
+    # Read-only, single-user slice of the same `scores` rows /me already reads —
+    # no schema change, just exposing more of a table that already exists.
+    days = max(1, min(days, 30))
+    today = date.today()
+    start = today - timedelta(days=days - 1)
+    result = (
+        supabase.table("scores")
+        .select("date, total_score")
+        .eq("user_id", user_id)
+        .gte("date", start.isoformat())
+        .lte("date", today.isoformat())
+        .order("date")
+        .execute()
+    )
+    return {"history": result.data}
+
 
 @router.get("/me")
 def get_me(user_id: str = Depends(get_current_user_id)):
