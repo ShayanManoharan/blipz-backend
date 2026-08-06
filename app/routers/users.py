@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from fastapi import APIRouter, Depends
 from app.auth import get_current_user_id
 from app.database import supabase
+from app.scoring import uses_normalized_scoring
 
 router = APIRouter()
 
@@ -25,7 +26,16 @@ def get_me_history(days: int = 5, user_id: str = Depends(get_current_user_id)):
         .order("date")
         .execute()
     )
-    return {"history": result.data}
+    # scoring_model tells the client whether total_score for that day is on the old
+    # unweighted /35 scale or the normalized /100 scale — the two are never comparable
+    # at face value, and this endpoint's date window can straddle the cutover for up to
+    # `days` days after it. Derived purely from each row's own `date`, never stored —
+    # see app/scoring.py's module docstring for why historical rows are never rewritten.
+    history = [
+        {**row, "scoring_model": "normalized_100" if uses_normalized_scoring(date.fromisoformat(row["date"])) else "legacy_raw_35"}
+        for row in result.data
+    ]
+    return {"history": history}
 
 
 @router.get("/me")

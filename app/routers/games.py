@@ -23,6 +23,7 @@ from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
 from app.rate_limit import limiter
+from app.scoring import compute_row_total
 from app.time_utils import utc_today
 from app.models.schemas import (
     MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit,
@@ -131,7 +132,10 @@ def complete_game_attempt(user_id: str, today: str, game: str, score, extra_fiel
         maths = score if game == "maths" else 0
         trivia = score if game == "trivia" else 0
         guess = score if game == "guess" else 0
-        total = round(maths + trivia + guess, 1)
+        maths_elapsed = extra_fields.get("maths_elapsed_seconds") if game == "maths" else None
+        total = compute_row_total(
+            today, maths_correct=maths, trivia_correct=trivia, guess_score=guess, maths_elapsed_seconds=maths_elapsed
+        )
 
         insert_data = {
             "user_id": user_id,
@@ -160,7 +164,16 @@ def complete_game_attempt(user_id: str, today: str, game: str, score, extra_fiel
     new_maths = score if game == "maths" else existing["maths_score"]
     new_trivia = score if game == "trivia" else existing["trivia_score"]
     new_guess = score if game == "guess" else float(existing["guess_score"])
-    total = round(new_maths + new_trivia + new_guess, 1)
+    new_maths_elapsed = (
+        extra_fields.get("maths_elapsed_seconds") if game == "maths" else existing.get("maths_elapsed_seconds")
+    )
+    total = compute_row_total(
+        today,
+        maths_correct=new_maths,
+        trivia_correct=new_trivia,
+        guess_score=new_guess,
+        maths_elapsed_seconds=new_maths_elapsed,
+    )
 
     update_data = {score_field: score, completed_field: True, "total_score": total, **extra_fields}
 
