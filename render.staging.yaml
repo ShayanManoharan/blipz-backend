@@ -36,11 +36,19 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     schedule: "0 22 * * *"  # 22:00 UTC daily
+    # RENDER_EXTERNAL_HOSTNAME is a web service's own public hostname — a cron job
+    # has no such thing to expose, so a cron job can't rely on its own copy of that
+    # variable to reach the web service. BLIPZ_API_BASE_URL is entered manually
+    # (sync: false) once the blipz-backend-staging web service exists and its real
+    # URL is known — see docs/DEPLOYMENT.md's "after deploying" step. Full HTTPS URL,
+    # no trailing slash — same value pasted into Staging.xcconfig.
     dockerCommand: >
-      sh -c "curl -sf -X POST https://$RENDER_EXTERNAL_HOSTNAME/admin/generate-content
+      sh -c "curl -sf -X POST $BLIPZ_API_BASE_URL/admin/generate-content
       -H \"x-admin-token: $ADMIN_TOKEN\""
     envVars:
       - key: ADMIN_TOKEN
+        sync: false
+      - key: BLIPZ_API_BASE_URL
         sync: false
 
   - type: cron
@@ -48,9 +56,13 @@ services:
     runtime: docker
     dockerfilePath: ./Dockerfile
     schedule: "5 0 * * *"  # 00:05 UTC daily
+    # See blipz-generate-tomorrow-staging above for why this is BLIPZ_API_BASE_URL
+    # rather than RENDER_EXTERNAL_HOSTNAME.
     dockerCommand: >
-      sh -c "curl -sf -X POST https://$RENDER_EXTERNAL_HOSTNAME/admin/publish-content
+      sh -c "curl -sf -X POST $BLIPZ_API_BASE_URL/admin/publish-content
       -H \"x-admin-token: $ADMIN_TOKEN\""
     envVars:
       - key: ADMIN_TOKEN
+        sync: false
+      - key: BLIPZ_API_BASE_URL
         sync: false

@@ -142,9 +142,21 @@ not yet approved, see below).
 4. Approve creation — **this is the billable-resource step (though the web service's
    Free plan itself costs nothing — see the cost note below); do not do this without
    explicit go-ahead.**
-5. Once deployed, run the staging smoke test (§8 below) against the new HTTPS URL.
-6. Update iOS's `Staging.xcconfig` with the real staging URL (see §7) — a separate,
-   explicit step; nothing here inserts a fake or guessed URL automatically.
+5. Once deployed, note the web service's real URL (Render assigns it, e.g.
+   `https://blipz-backend-staging.onrender.com`) — **HTTPS, no trailing slash**. Paste
+   this exact same value into **both** of the following (a separate, explicit step;
+   nothing here inserts a fake or guessed URL automatically):
+   1. iOS's `Staging.xcconfig` (`INFOPLIST_KEY_APIBaseURL`) — see §7/§8.
+   2. The `BLIPZ_API_BASE_URL` env var on **both** cron jobs
+      (`blipz-generate-tomorrow-staging`, `blipz-publish-today-staging`) in the Render
+      dashboard — each cron job has its own copy of this `sync: false` var, so it must
+      be entered twice, once per cron job. A cron job has no public URL of its own
+      (unlike the web service), which is why this can't be filled in at creation time
+      in step 3 above — the URL doesn't exist yet.
+6. Run the staging smoke test (§7 below) against the new HTTPS URL, and separately
+   trigger each cron job once from the Render dashboard ("Trigger Run") to confirm
+   `BLIPZ_API_BASE_URL` was entered correctly on both — a malformed or missing value
+   here fails the curl inside the cron job, not the smoke test.
 
 **Staging cost:** the web service on Render's **Free** plan is **$0/mo** (cold starts
 after ~15 min idle — acceptable for internal testing, not for anything time-sensitive).
