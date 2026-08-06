@@ -131,8 +131,15 @@ def generate_math_problems(count=20):
     for _ in range(count):
         operation = random.choice(MATH_OPERATIONS)
 
-        if operation in ("add", "subtract"):
+        if operation == "add":
             left, right = random.randint(2, 100), random.randint(2, 100)
+        elif operation == "subtract":
+            # Two independent draws can put the smaller number first, giving a
+            # negative answer (e.g. 30 - 50) — swap so left is always >= right,
+            # which also means the larger operand is always the one displayed first.
+            left, right = random.randint(2, 100), random.randint(2, 100)
+            if right > left:
+                left, right = right, left
         elif operation == "multiply":
             left, right = random.randint(2, 12), random.randint(2, 100)
         else:  # divide — keep it evenly divisible, same as before
