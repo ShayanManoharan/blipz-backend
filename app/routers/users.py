@@ -18,7 +18,7 @@ def get_me_history(days: int = 5, user_id: str = Depends(get_current_user_id)):
     start = today - timedelta(days=days - 1)
     result = (
         supabase.table("scores")
-        .select("date, total_score")
+        .select("date, total_score, maths_elapsed_seconds")
         .eq("user_id", user_id)
         .gte("date", start.isoformat())
         .lte("date", today.isoformat())
@@ -38,11 +38,12 @@ def get_me(user_id: str = Depends(get_current_user_id)):
     today = date.today().isoformat()
     score_result = supabase.table("scores").select(
         "maths_score, trivia_score, guess_score, total_score, "
-        "maths_completed, guess_completed, trivia_completed"
+        "maths_completed, guess_completed, trivia_completed, maths_elapsed_seconds"
     ).eq("user_id", user_id).eq("date", today).execute()
     today_score = score_result.data[0] if score_result.data else {
         "maths_score": 0, "trivia_score": 0, "guess_score": 0, "total_score": 0,
         "maths_completed": False, "guess_completed": False, "trivia_completed": False,
+        "maths_elapsed_seconds": None,
     }
 
     return {**profile, **today_score}
