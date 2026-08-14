@@ -4,7 +4,8 @@
 # with real daily content, and mocks OpenAI (never spends real API cost) plus the
 # Supabase storage calls and the reachability check, while still exercising real reads/
 # writes against daily_content / daily_content_generation_log / fallback_daily_content
-# — consistent with this project's "real Supabase, no test-DB isolation" convention.
+# All fallback activation calls are explicitly constrained to test-fallback-* labels;
+# they can never select or rotate persistent/shared fallback packages.
 
 import base64
 import json
@@ -26,6 +27,7 @@ REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
 
 TEST_CONTENT_DATE = date(2099, 6, 15)
 TEST_CONTENT_DATE_2 = date(2099, 6, 16)
+TEST_FALLBACK_LABEL_PREFIX = "test-fallback-"
 
 
 def _cleanup(content_date: date = TEST_CONTENT_DATE):
@@ -216,7 +218,9 @@ def test_publish_with_ready_content_succeeds():
     with _mocked_generation():
         cg.generate_content_for_date(TEST_CONTENT_DATE)
 
-    result = cg.publish_content_for_date(TEST_CONTENT_DATE)
+    result = cg.publish_content_for_date(
+        TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
     assert result["status"] == "published"
     assert result["used_fallback"] is False
 
@@ -250,7 +254,9 @@ def test_publish_without_ready_content_activates_fallback():
         "math_problems": cg.generate_math_problems(20),
     }).execute()
 
-    result = cg.publish_content_for_date(TEST_CONTENT_DATE)
+    result = cg.publish_content_for_date(
+        TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
     assert result["status"] == "published"
     assert result["used_fallback"] is True
 
@@ -263,24 +269,15 @@ def test_publish_without_ready_content_activates_fallback():
 
 @requires_daily_content_status_migration
 def test_publish_without_ready_content_and_without_fallback_raises():
-    # A real environment may already have a genuine, persistent fallback pool seeded
-    # (see POST /admin/seed-fallback-content) — this test needs "no active fallback
-    # exists" specifically, so it temporarily deactivates whatever's currently active
-    # rather than assuming the pool is empty, and restores it afterward either way.
-    active_rows = supabase.table("fallback_daily_content").select("id").eq("active", True).execute().data
-    active_ids = [row["id"] for row in active_rows]
-    if active_ids:
-        supabase.table("fallback_daily_content").update({"active": False}).in_("id", active_ids).execute()
+    # The test-only prefix deliberately has no rows. Persistent/shared active fallbacks
+    # are outside the selector and are never deactivated or otherwise mutated.
+    with pytest.raises(cg.ContentGenerationError):
+        cg.publish_content_for_date(
+            TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+        )
 
-    try:
-        with pytest.raises(cg.ContentGenerationError):
-            cg.publish_content_for_date(TEST_CONTENT_DATE)
-
-        rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
-        assert rows == []
-    finally:
-        if active_ids:
-            supabase.table("fallback_daily_content").update({"active": True}).in_("id", active_ids).execute()
+    rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
+    assert rows == []
 
 
 @requires_daily_content_status_migration
@@ -300,8 +297,12 @@ def test_fallback_does_not_repeat_previous_day_when_alternative_exists():
         "math_problems": cg.generate_math_problems(20),
     }).execute().data[0]
 
-    first = cg.activate_fallback_for_date(TEST_CONTENT_DATE)
-    second = cg.activate_fallback_for_date(TEST_CONTENT_DATE_2)  # "the next day"
+    first = cg.activate_fallback_for_date(
+        TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
+    second = cg.activate_fallback_for_date(  # "the next day"
+        TEST_CONTENT_DATE_2, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
 
     first_row = supabase.table("daily_content").select("fallback_source_id").eq(
         "date", TEST_CONTENT_DATE.isoformat()
@@ -312,6 +313,29 @@ def test_fallback_does_not_repeat_previous_day_when_alternative_exists():
 
     assert first_row["fallback_source_id"] != second_row["fallback_source_id"]
     assert {first_row["fallback_source_id"], second_row["fallback_source_id"]} == {fb_a["id"], fb_b["id"]}
+
+
+@requires_daily_content_status_migration
+def test_test_scoped_fallback_activation_does_not_mutate_non_test_rows():
+    shared_before = supabase.table("fallback_daily_content").select(
+        "id, active, last_used_date, times_used"
+    ).not_.like("label", f"{TEST_FALLBACK_LABEL_PREFIX}%").order("id").execute().data
+
+    supabase.table("fallback_daily_content").insert({
+        "label": "test-fallback-isolation",
+        "image_url": "https://example.invalid/isolation.png",
+        "image_prompt": "Isolated fallback prompt",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(20),
+    }).execute()
+    cg.activate_fallback_for_date(
+        TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
+
+    shared_after = supabase.table("fallback_daily_content").select(
+        "id, active, last_used_date, times_used"
+    ).not_.like("label", f"{TEST_FALLBACK_LABEL_PREFIX}%").order("id").execute().data
+    assert shared_after == shared_before
 
 
 # --- UTC day-boundary behavior -------------------------------------------------------

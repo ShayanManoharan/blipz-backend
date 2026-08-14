@@ -330,7 +330,7 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
     return {"message": "Daily content generated successfully", "date": date_str, "status": "ready"}
 
 
-def activate_fallback_for_date(content_date: date) -> dict:
+def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str | None = None) -> dict:
     """
     Publishes a prevalidated emergency package for content_date instead of leaving it
     with no content. Picks the least-recently-used active fallback, explicitly
@@ -345,7 +345,15 @@ def activate_fallback_for_date(content_date: date) -> dict:
         else None
     )
 
-    pool = supabase.table("fallback_daily_content").select("*").eq("active", True).execute().data
+    pool_query = supabase.table("fallback_daily_content").select("*").eq("active", True)
+    if fallback_label_prefix is not None:
+        # Test callers use an unmistakable label namespace so integration tests can
+        # exercise real PostgREST behavior without ever selecting or rotating shared
+        # fallback packages. Production callers leave this unset and see the full pool.
+        if not fallback_label_prefix.startswith("test-fallback-"):
+            raise ValueError("fallback_label_prefix is reserved for the test-fallback-* namespace")
+        pool_query = pool_query.like("label", f"{fallback_label_prefix}%")
+    pool = pool_query.execute().data
     if not pool:
         _log_generation_attempt(
             content_date, "publish", "failed", used_fallback=False, error_message="No fallback content available"
@@ -393,7 +401,9 @@ def activate_fallback_for_date(content_date: date) -> dict:
     }
 
 
-def publish_content_for_date(content_date: date | None = None) -> dict:
+def publish_content_for_date(
+    content_date: date | None = None, *, fallback_label_prefix: str | None = None
+) -> dict:
     """
     Idempotent: publishing an already-published date is a no-op success. Flips a
     'ready' row to 'published' via a conditional update (guards the same race a
@@ -425,7 +435,7 @@ def publish_content_for_date(content_date: date | None = None) -> dict:
         return {"message": "Already published", "date": date_str, "status": "published", "used_fallback": False}
 
     logger.warning("No ready content for content_date=%s at publish time — activating fallback", content_date)
-    return activate_fallback_for_date(content_date)
+    return activate_fallback_for_date(content_date, fallback_label_prefix=fallback_label_prefix)
 
 
 # Hand-authored, no OpenAI involved — seeding the emergency pool must never itself
