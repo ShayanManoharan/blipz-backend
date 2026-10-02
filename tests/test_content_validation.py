@@ -9,6 +9,7 @@ from app.content_validation import (
     GENERATOR_VERSION,
     PackageValidationError,
     validate_daily_package,
+    validate_playable_package,
 )
 
 
@@ -56,6 +57,22 @@ def test_valid_complete_package_is_accepted():
     package = _valid_package()
     validate_daily_package(package)
     assert UUID(package["package_revision_id"])
+
+
+def test_pre_migration_playable_package_is_accepted_without_provenance():
+    package = _valid_package()
+    legacy_package = {
+        key: package[key]
+        for key in ("image_prompt", "image_url", "math_problems", "trivia_questions")
+    }
+    validate_playable_package(legacy_package)
+
+
+def test_playable_package_rejects_an_unsafe_image_url():
+    package = _valid_package()
+    package["image_url"] = "http://example.test/image.png"
+    with pytest.raises(PackageValidationError, match="absolute HTTPS URL"):
+        validate_playable_package(package)
 
 
 def test_negative_subtraction_is_rejected():

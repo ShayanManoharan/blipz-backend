@@ -27,6 +27,7 @@ import httpx
 from openai import OpenAI
 
 from app.config import settings
+from app.content_validation import PackageValidationError, validate_playable_package
 from app.database import supabase
 from app.time_utils import utc_now, utc_today, utc_tomorrow
 
@@ -36,6 +37,16 @@ logger = logging.getLogger("blipz.content_generator")
 
 class ContentGenerationError(Exception):
     """A complete, valid daily content package could not be produced or verified."""
+
+
+def _validate_publishable_package(package: dict, boundary: str) -> None:
+    """Apply the shared pre-migration serviceability gate at a state boundary."""
+
+    try:
+        validate_playable_package(package)
+    except PackageValidationError as exc:
+        raise ContentGenerationError(f"{boundary} validation failed: {exc}") from exc
+
 
 def parse_trivia_questions(trivia_text):
     trivia_text = trivia_text.strip()
@@ -304,6 +315,7 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
     logger.info("Daily content generation started (content_date=%s)", content_date)
     try:
         package = generate_content_package(content_date)
+        _validate_publishable_package(package, "generation-to-ready")
     except Exception as e:
         logger.exception("Daily content generation failed (content_date=%s)", content_date)
         _log_generation_attempt(content_date, "generate", "failed", error_message=str(e))
@@ -361,9 +373,57 @@ def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str
         logger.error("No fallback content available to activate (content_date=%s)", content_date)
         raise ContentGenerationError("No ready content and no fallback content available")
 
-    candidates = [f for f in pool if f["id"] != excluded_id] or pool
-    candidates.sort(key=lambda f: (f["last_used_date"] or "0000-00-00", f["times_used"]))
-    chosen = candidates[0]
+    preferred = [f for f in pool if f["id"] != excluded_id]
+    previous_day = [f for f in pool if f["id"] == excluded_id]
+    candidates = preferred + previous_day
+    candidates.sort(
+        key=lambda f: (
+            f["id"] == excluded_id,
+            f["last_used_date"] or "0000-00-00",
+            f["times_used"] or 0,
+        )
+    )
+
+    chosen = None
+    for candidate in candidates:
+        try:
+            _validate_publishable_package(candidate, "fallback-activation")
+        except ContentGenerationError as exc:
+            # A structurally invalid emergency package is unsafe for every date, so
+            # quarantine it immediately and continue looking for a valid candidate.
+            supabase.table("fallback_daily_content").update({"active": False}).eq(
+                "id", candidate["id"]
+            ).execute()
+            error_message = (
+                f"fallback_id={candidate['id']} label={candidate['label']}: {exc}"
+            )
+            _log_generation_attempt(
+                content_date,
+                "publish",
+                "failed",
+                used_fallback=True,
+                error_message=error_message,
+            )
+            logger.error(
+                "Invalid fallback deactivated (content_date=%s, fallback_id=%s, label=%s)",
+                content_date,
+                candidate["id"],
+                candidate["label"],
+            )
+            continue
+        chosen = candidate
+        break
+
+    if chosen is None:
+        _log_generation_attempt(
+            content_date,
+            "publish",
+            "failed",
+            used_fallback=False,
+            error_message="No valid fallback content available",
+        )
+        logger.error("No valid fallback content available to activate (content_date=%s)", content_date)
+        raise ContentGenerationError("No ready content and no valid fallback content available")
 
     date_str = content_date.isoformat()
     now = utc_now().isoformat()
@@ -384,7 +444,7 @@ def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str
     ).execute()
 
     supabase.table("fallback_daily_content").update(
-        {"last_used_date": date_str, "times_used": chosen["times_used"] + 1}
+        {"last_used_date": date_str, "times_used": (chosen["times_used"] or 0) + 1}
     ).eq("id", chosen["id"]).execute()
 
     _log_generation_attempt(content_date, "publish", "success", used_fallback=True)
@@ -413,12 +473,24 @@ def publish_content_for_date(
     content_date = content_date or utc_today()
     date_str = content_date.isoformat()
 
-    existing = supabase.table("daily_content").select("id, status").eq("date", date_str).execute()
+    existing = supabase.table("daily_content").select("*").eq("date", date_str).execute()
 
     if existing.data and existing.data[0]["status"] == "published":
         return {"message": "Already published", "date": date_str, "status": "published", "used_fallback": False}
 
     if existing.data and existing.data[0]["status"] == "ready":
+        try:
+            _validate_publishable_package(existing.data[0], "ready-to-published")
+        except ContentGenerationError as exc:
+            _log_generation_attempt(
+                content_date, "publish", "failed", error_message=str(exc)
+            )
+            logger.error(
+                "Ready content failed publication validation (content_date=%s, content_id=%s)",
+                content_date,
+                existing.data[0]["id"],
+            )
+            raise
         now = utc_now().isoformat()
         result = (
             supabase.table("daily_content")
@@ -494,13 +566,19 @@ def seed_fallback_content(placeholder_image_url: str) -> dict:
         if existing.data:
             continue
         normalized_trivia = normalize_trivia_questions(package["trivia_questions"])
-        supabase.table("fallback_daily_content").insert({
+        candidate = {
             "label": package["label"],
             "image_url": placeholder_image_url,
             "image_prompt": package["image_prompt"],
             "trivia_questions": normalized_trivia,
             "math_problems": generate_math_problems(20),
-        }).execute()
+        }
+        try:
+            _validate_publishable_package(candidate, "fallback-insertion")
+        except ContentGenerationError:
+            logger.exception("Fallback insertion rejected (label=%s)", package["label"])
+            raise
+        supabase.table("fallback_daily_content").insert(candidate).execute()
         inserted.append(package["label"])
     return {"inserted": inserted, "already_present": [p["label"] for p in _FALLBACK_TRIVIA_PACKAGES if p["label"] not in inserted]}
 

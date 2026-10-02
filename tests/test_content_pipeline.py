@@ -210,6 +210,35 @@ def test_unreachable_uploaded_image_raises_and_stores_nothing():
     assert rows == []
 
 
+@requires_daily_content_status_migration
+def test_generation_boundary_rejects_invalid_complete_package():
+    invalid_package = {
+        "image_url": "https://example.invalid/generated.png",
+        "image_prompt": "A structurally invalid generated package",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(19),
+    }
+
+    with patch.object(cg, "generate_content_package", return_value=invalid_package):
+        with pytest.raises(cg.ContentGenerationError, match="generation-to-ready"):
+            cg.generate_content_for_date(TEST_CONTENT_DATE)
+
+    rows = supabase.table("daily_content").select("id").eq(
+        "date", TEST_CONTENT_DATE.isoformat()
+    ).execute().data
+    assert rows == []
+
+    logs = supabase.table("daily_content_generation_log").select(
+        "operation, status, error_message"
+    ).eq("content_date", TEST_CONTENT_DATE.isoformat()).execute().data
+    assert any(
+        log["operation"] == "generate"
+        and log["status"] == "failed"
+        and "exactly 20" in log["error_message"]
+        for log in logs
+    )
+
+
 # --- Publication: with and without prepared content ---------------------------------
 
 
@@ -229,6 +258,37 @@ def test_publish_with_ready_content_succeeds():
     ).execute().data[0]
     assert row["status"] == "published"
     assert row["published_at"] is not None
+
+
+@requires_daily_content_status_migration
+def test_publish_boundary_leaves_invalid_ready_content_unpublished():
+    supabase.table("daily_content").insert({
+        "date": TEST_CONTENT_DATE.isoformat(),
+        "image_url": "https://example.invalid/invalid-ready.png",
+        "image_prompt": "An invalid ready package",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(19),
+        "status": "ready",
+    }).execute()
+
+    with pytest.raises(cg.ContentGenerationError, match="ready-to-published"):
+        cg.publish_content_for_date(TEST_CONTENT_DATE)
+
+    row = supabase.table("daily_content").select("status, published_at").eq(
+        "date", TEST_CONTENT_DATE.isoformat()
+    ).execute().data[0]
+    assert row["status"] == "ready"
+    assert row["published_at"] is None
+
+    logs = supabase.table("daily_content_generation_log").select(
+        "operation, status, error_message"
+    ).eq("content_date", TEST_CONTENT_DATE.isoformat()).execute().data
+    assert any(
+        log["operation"] == "publish"
+        and log["status"] == "failed"
+        and "exactly 20" in log["error_message"]
+        for log in logs
+    )
 
 
 @requires_daily_content_status_migration
@@ -277,6 +337,94 @@ def test_publish_without_ready_content_and_without_fallback_raises():
         )
 
     rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
+    assert rows == []
+
+
+@requires_daily_content_status_migration
+def test_fallback_insertion_boundary_rejects_invalid_package():
+    test_package = {
+        "label": "test-fallback-seed-invalid",
+        "image_prompt": "A local seed that must not be inserted",
+        "trivia_questions": json.loads(_valid_trivia_payload()),
+    }
+
+    with patch.object(cg, "_FALLBACK_TRIVIA_PACKAGES", [test_package]):
+        with pytest.raises(cg.ContentGenerationError, match="fallback-insertion"):
+            cg.seed_fallback_content("not-an-https-url")
+
+    rows = supabase.table("fallback_daily_content").select("id").eq(
+        "label", test_package["label"]
+    ).execute().data
+    assert rows == []
+
+
+@requires_daily_content_status_migration
+def test_invalid_fallback_is_deactivated_and_next_valid_candidate_is_used():
+    invalid = supabase.table("fallback_daily_content").insert({
+        "label": "test-fallback-invalid-first",
+        "image_url": "https://example.invalid/invalid.png",
+        "image_prompt": "An invalid fallback",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(19),
+        "last_used_date": "2099-01-01",
+    }).execute().data[0]
+    valid = supabase.table("fallback_daily_content").insert({
+        "label": "test-fallback-valid-second",
+        "image_url": "https://example.invalid/valid.png",
+        "image_prompt": "A valid fallback",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(20),
+        "last_used_date": "2099-05-01",
+    }).execute().data[0]
+
+    result = cg.activate_fallback_for_date(
+        TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+    )
+    assert result["fallback_label"] == valid["label"]
+
+    invalid_after = supabase.table("fallback_daily_content").select("active").eq(
+        "id", invalid["id"]
+    ).execute().data[0]
+    assert invalid_after["active"] is False
+
+    published = supabase.table("daily_content").select(
+        "status, fallback_source_id"
+    ).eq("date", TEST_CONTENT_DATE.isoformat()).execute().data[0]
+    assert published == {"status": "published", "fallback_source_id": valid["id"]}
+
+    logs = supabase.table("daily_content_generation_log").select(
+        "operation, status, error_message"
+    ).eq("content_date", TEST_CONTENT_DATE.isoformat()).execute().data
+    assert any(
+        log["operation"] == "publish"
+        and log["status"] == "failed"
+        and str(invalid["id"]) in log["error_message"]
+        for log in logs
+    )
+
+
+@requires_daily_content_status_migration
+def test_only_invalid_fallbacks_fail_without_publishing():
+    invalid = supabase.table("fallback_daily_content").insert({
+        "label": "test-fallback-only-invalid",
+        "image_url": "https://example.invalid/invalid-only.png",
+        "image_prompt": "The only fallback is invalid",
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": [],
+    }).execute().data[0]
+
+    with pytest.raises(cg.ContentGenerationError, match="no valid fallback"):
+        cg.activate_fallback_for_date(
+            TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
+        )
+
+    invalid_after = supabase.table("fallback_daily_content").select("active").eq(
+        "id", invalid["id"]
+    ).execute().data[0]
+    assert invalid_after["active"] is False
+    rows = supabase.table("daily_content").select("id").eq(
+        "date", TEST_CONTENT_DATE.isoformat()
+    ).execute().data
     assert rows == []
 
 

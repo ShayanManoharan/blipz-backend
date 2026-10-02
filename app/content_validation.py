@@ -214,6 +214,43 @@ def validate_guess_identity(package: dict[str, Any]) -> None:
         raise PackageValidationError(errors)
 
 
+def validate_playable_package(package: Any) -> None:
+    """Validate the fields required to make all three games safely playable.
+
+    This is the compatibility gate for rows created before the provenance migration
+    is applied.  The complete validator below adds immutable image identity and
+    version checks; callers must switch to that stricter gate once those columns are
+    available in the database.
+    """
+
+    if not isinstance(package, dict):
+        raise PackageValidationError(["daily package must be an object"])
+
+    errors: list[str] = []
+    if not _is_nonempty_string(package.get("image_prompt")):
+        errors.append("image_prompt must be non-empty")
+
+    image_url = package.get("image_url")
+    if not _is_nonempty_string(image_url):
+        errors.append("image_url must be non-empty")
+    else:
+        parsed_url = urlparse(image_url)
+        if parsed_url.scheme != "https" or not parsed_url.netloc:
+            errors.append("image_url must be an absolute HTTPS URL")
+
+    for validator, value in (
+        (validate_math_problems, package.get("math_problems")),
+        (validate_trivia_questions, package.get("trivia_questions")),
+    ):
+        try:
+            validator(value)
+        except PackageValidationError as exc:
+            errors.extend(exc.errors)
+
+    if errors:
+        raise PackageValidationError(errors)
+
+
 def validate_daily_package(package: Any, *, require_current_versions: bool = True) -> None:
     """Validate every game and its technical provenance as one serviceable package."""
 
@@ -221,6 +258,11 @@ def validate_daily_package(package: Any, *, require_current_versions: bool = Tru
         raise PackageValidationError(["daily package must be an object"])
 
     errors: list[str] = []
+    try:
+        validate_playable_package(package)
+    except PackageValidationError as exc:
+        errors.extend(exc.errors)
+
     if require_current_versions:
         if package.get("content_schema_version") != CONTENT_SCHEMA_VERSION:
             errors.append(
@@ -231,14 +273,6 @@ def validate_daily_package(package: Any, *, require_current_versions: bool = Tru
                 f"generator_version must be {GENERATOR_VERSION!r}, got {package.get('generator_version')!r}"
             )
 
-    for validator, value in (
-        (validate_math_problems, package.get("math_problems")),
-        (validate_trivia_questions, package.get("trivia_questions")),
-    ):
-        try:
-            validator(value)
-        except PackageValidationError as exc:
-            errors.extend(exc.errors)
     try:
         validate_guess_identity(package)
     except PackageValidationError as exc:
