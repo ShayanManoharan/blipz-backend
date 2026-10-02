@@ -12,8 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.agents.content_generator import (
     ContentGenerationError,
+    ContentReplacementConflict,
     generate_content_for_date,
     publish_content_for_date,
+    replace_content_for_date,
     seed_fallback_content,
 )
 from app.auth import require_admin_token
@@ -62,23 +64,22 @@ def publish_content(content_date: str | None = None):
 
 
 @router.post("/replace-content")
-def replace_content(content_date: str):
+def replace_content(content_date: str, reason: str, force: bool = False):
     """
-    Administrative override: force-regenerates and republishes content_date even if
-    a 'published' row already exists — for replacing problematic already-live
-    content. Unlike generate/publish, this is NOT idempotent by design (it always
-    regenerates); call it deliberately, not from a schedule.
+    Explicit, audited replacement for ready/published content. Published dates with
+    completed attempts require force=true so fairness impact cannot be accidental.
+    The database swaps the validated package and inserts its audit row atomically.
     """
     target_date = _parse_content_date(content_date, utc_today())
-    date_str = target_date.isoformat()
-    logger.warning("Administrative content replacement requested (content_date=%s)", target_date)
-
-    # Clear the existing row's status back to draft so generate_content_for_date's
-    # idempotency guard doesn't just skip it, then generate + publish fresh.
-    supabase.table("daily_content").update({"status": "draft"}).eq("date", date_str).execute()
+    logger.warning(
+        "Administrative content replacement requested (content_date=%s, forced=%s)",
+        target_date,
+        force,
+    )
     try:
-        generate_content_for_date(target_date)
-        return publish_content_for_date(target_date)
+        return replace_content_for_date(target_date, reason=reason, force=force)
+    except ContentReplacementConflict as e:
+        raise HTTPException(status_code=409, detail=f"Content replacement blocked: {e}")
     except ContentGenerationError as e:
         raise HTTPException(status_code=502, detail=f"Content replacement failed: {e}")
 

@@ -27,6 +27,7 @@ from uuid import uuid4
 
 import httpx
 from openai import OpenAI
+from postgrest.exceptions import APIError
 
 from app.config import settings
 from app.content_validation import (
@@ -59,6 +60,10 @@ PROVENANCE_FIELDS = (
 
 class ContentGenerationError(Exception):
     """A complete, valid daily content package could not be produced or verified."""
+
+
+class ContentReplacementConflict(ContentGenerationError):
+    """The requested replacement is unsafe or no longer targets the active revision."""
 
 
 def _validate_publishable_package(package: dict, boundary: str) -> None:
@@ -359,6 +364,22 @@ def _log_generation_attempt(
         )
 
 
+def _ready_content_row(content_date: date, package: dict) -> dict:
+    return {
+        "date": content_date.isoformat(),
+        "image_url": package["image_url"],
+        "image_prompt": package["image_prompt"],
+        "trivia_questions": package["trivia_questions"],
+        "math_problems": package["math_problems"],
+        "status": "ready",
+        "generated_at": utc_now().isoformat(),
+        "published_at": None,
+        "is_fallback": False,
+        "fallback_source_id": None,
+        **{field: package[field] for field in PROVENANCE_FIELDS},
+    }
+
+
 def generate_content_for_date(content_date: date | None = None) -> dict:
     """
     Idempotent: if content_date already has a 'ready' or 'published' row, returns
@@ -369,11 +390,15 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
     content_date = content_date or utc_tomorrow()
     date_str = content_date.isoformat()
 
-    existing = supabase.table("daily_content").select("status").eq("date", date_str).execute()
+    existing = supabase.table("daily_content").select("id, status").eq("date", date_str).execute()
     if existing.data and existing.data[0]["status"] in ("ready", "published"):
         status = existing.data[0]["status"]
         logger.info("Generation skipped — content_date=%s already %s", content_date, status)
         return {"message": f"Content already {status}", "date": date_str, "status": status}
+    if existing.data and existing.data[0]["status"] != "draft":
+        raise ContentGenerationError(
+            f"Ordinary generation cannot replace content in status {existing.data[0]['status']!r}"
+        )
 
     logger.info("Daily content generation started (content_date=%s)", content_date)
     package_revision_id = str(uuid4())
@@ -392,22 +417,30 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
         )
         raise
 
-    now = utc_now().isoformat()
-    supabase.table("daily_content").upsert(
-        {
-            "date": date_str,
-            "image_url": package["image_url"],
-            "image_prompt": package["image_prompt"],
-            "trivia_questions": package["trivia_questions"],
-            "math_problems": package["math_problems"],
-            "status": "ready",
-            "generated_at": now,
-            "is_fallback": False,
-            "fallback_source_id": None,
-            **{field: package[field] for field in PROVENANCE_FIELDS},
-        },
-        on_conflict="date",
-    ).execute()
+    ready_row = _ready_content_row(content_date, package)
+    if existing.data:
+        # Compare-and-swap: a concurrent publisher/replacement that moved this row
+        # out of draft wins. Ordinary generation never overwrites ready/published.
+        persisted = (
+            supabase.table("daily_content")
+            .update(ready_row)
+            .eq("id", existing.data[0]["id"])
+            .eq("status", "draft")
+            .execute()
+        )
+        if not persisted.data:
+            raise ContentReplacementConflict(
+                "Daily content changed while generation was in progress; generated package was not activated"
+            )
+    else:
+        try:
+            supabase.table("daily_content").insert(ready_row).execute()
+        except APIError as exc:
+            if exc.code == "23505":
+                raise ContentReplacementConflict(
+                    "Daily content was created concurrently; generated package was not activated"
+                ) from exc
+            raise
 
     _log_generation_attempt(
         content_date,
@@ -418,6 +451,91 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
     )
     logger.info("Daily content generation completed (content_date=%s, status=ready)", content_date)
     return {"message": "Daily content generated successfully", "date": date_str, "status": "ready"}
+
+
+def _date_has_completed_attempts(content_date: date) -> bool:
+    rows = supabase.table("scores").select(
+        "maths_completed, guess_completed, trivia_completed"
+    ).eq("date", content_date.isoformat()).execute().data
+    return any(
+        row.get("maths_completed") or row.get("guess_completed") or row.get("trivia_completed")
+        for row in rows
+    )
+
+
+def replace_content_for_date(
+    content_date: date,
+    *,
+    reason: str,
+    force: bool = False,
+    actor: str = "admin_api",
+) -> dict:
+    """Build and atomically activate a new revision through the audited DB RPC."""
+
+    reason = reason.strip()
+    if not reason:
+        raise ContentGenerationError("A non-empty replacement reason is required")
+
+    date_str = content_date.isoformat()
+    existing = supabase.table("daily_content").select("*").eq("date", date_str).execute()
+    if not existing.data:
+        raise ContentGenerationError("No daily content exists for the requested date")
+
+    current = existing.data[0]
+    if current["status"] not in ("ready", "published"):
+        raise ContentReplacementConflict("Only ready or published content can be explicitly replaced")
+
+    if current["status"] == "published" and not force and _date_has_completed_attempts(content_date):
+        raise ContentReplacementConflict(
+            "Published content has completed attempts; retry with force=true only after reviewing fairness impact"
+        )
+
+    replacement_revision = str(uuid4())
+    replacement = generate_content_package(
+        content_date,
+        package_revision_id=replacement_revision,
+    )
+    _validate_publishable_package(replacement, "explicit-replacement")
+
+    try:
+        result = supabase.rpc("replace_daily_content_revision", {
+            "p_daily_content_id": current["id"],
+            "p_expected_revision_id": current.get("package_revision_id"),
+            "p_replacement": replacement,
+            "p_actor": actor,
+            "p_reason": reason,
+            "p_force": force,
+        }).execute()
+    except APIError as exc:
+        message = str(exc)
+        if (
+            "completed attempts" in message
+            or "revision changed" in message
+            or "new package revision" in message
+            or "new image storage key" in message
+        ):
+            raise ContentReplacementConflict(message) from exc
+        raise
+
+    if not result.data:
+        raise ContentReplacementConflict("Replacement transaction returned no active package")
+
+    active = result.data[0]
+    logger.warning(
+        "Daily content replacement activated (content_date=%s, previous_revision=%s, new_revision=%s, forced=%s)",
+        content_date,
+        current.get("package_revision_id"),
+        active["package_revision_id"],
+        force,
+    )
+    return {
+        "message": "Content replaced",
+        "date": date_str,
+        "status": active["status"],
+        "previous_package_revision_id": current.get("package_revision_id"),
+        "package_revision_id": active["package_revision_id"],
+        "forced": force,
+    }
 
 
 def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str | None = None) -> dict:
