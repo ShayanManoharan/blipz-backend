@@ -8,10 +8,12 @@
 # they can never select or rotate persistent/shared fallback packages.
 
 import base64
+import hashlib
 import json
 from contextlib import contextmanager
 from datetime import date, timedelta
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -68,7 +70,12 @@ def _valid_trivia_payload():
     ])
 
 
-def _mock_openai_client(trivia_text=None, image_prompt_text="A cat wearing sunglasses on a surfboard"):
+def _mock_openai_client(
+    trivia_text=None,
+    image_prompt_text="A cat wearing sunglasses on a surfboard",
+    revised_prompt_text=None,
+    image_bytes=b"fake-png-bytes",
+):
     client = MagicMock()
     prompt_response = MagicMock()
     prompt_response.choices = [MagicMock(message=MagicMock(content=image_prompt_text))]
@@ -78,20 +85,36 @@ def _mock_openai_client(trivia_text=None, image_prompt_text="A cat wearing sungl
     client.chat.completions.create.side_effect = [prompt_response, trivia_response, trivia_response]
 
     image_response = MagicMock()
-    image_response.data = [MagicMock(b64_json=base64.b64encode(b"fake-png-bytes").decode())]
+    image_response.data = [MagicMock(
+        b64_json=base64.b64encode(image_bytes).decode(),
+        revised_prompt=revised_prompt_text,
+    )]
     client.images.generate.return_value = image_response
     return client
 
 
 @contextmanager
-def _mocked_generation(trivia_text=None, image_prompt_text=None, storage_upload_side_effect=None, head_status=200):
+def _mocked_generation(
+    trivia_text=None,
+    image_prompt_text=None,
+    revised_prompt_text=None,
+    image_bytes=b"fake-png-bytes",
+    storage_upload_side_effect=None,
+    head_status=200,
+):
     mock_client = _mock_openai_client(
-        trivia_text=trivia_text, image_prompt_text=image_prompt_text or "A cat wearing sunglasses on a surfboard"
+        trivia_text=trivia_text,
+        image_prompt_text=image_prompt_text or "A cat wearing sunglasses on a surfboard",
+        revised_prompt_text=revised_prompt_text,
+        image_bytes=image_bytes,
     )
     mock_storage_bucket = MagicMock()
     if storage_upload_side_effect:
         mock_storage_bucket.upload.side_effect = storage_upload_side_effect
-    mock_storage_bucket.get_public_url.return_value = "https://example.invalid/fake-daily-image.png"
+    mock_storage_bucket.get_public_url.side_effect = (
+        lambda storage_key: f"https://example.invalid/storage/v1/object/public/blipz-images/{storage_key}"
+    )
+    mock_client.storage_bucket = mock_storage_bucket
 
     mock_head_response = MagicMock(status_code=head_status)
 
@@ -99,6 +122,32 @@ def _mocked_generation(trivia_text=None, image_prompt_text=None, storage_upload_
          patch.object(supabase.storage, "from_", return_value=mock_storage_bucket), \
          patch.object(cg.httpx, "head", return_value=mock_head_response):
         yield mock_client
+
+
+def _provenanced_fallback(label: str, prompt: str, *, math_count=20, last_used_date=None) -> dict:
+    revision = str(uuid4())
+    storage_key = f"fallback/{revision}.png"
+    now = cg.utc_now().isoformat()
+    return {
+        "label": label,
+        "content_schema_version": cg.CONTENT_SCHEMA_VERSION,
+        "generator_version": cg.GENERATOR_VERSION,
+        "validated_at": now,
+        "validation_result": {"valid": True, "validator": "daily-package-v2"},
+        "package_revision_id": revision,
+        "original_image_prompt": prompt,
+        "effective_image_prompt": None,
+        "image_prompt": prompt,
+        "image_storage_key": storage_key,
+        "image_url": f"https://example.invalid/storage/v1/object/public/blipz-images/{storage_key}",
+        "image_sha256": "a" * 64,
+        "image_model": cg.IMAGE_MODEL,
+        "image_generated_at": now,
+        "image_verified_at": now,
+        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
+        "math_problems": cg.generate_math_problems(math_count),
+        "last_used_date": last_used_date,
+    }
 
 
 # --- Health endpoint needs no migration/auth at all --------------------------------
@@ -157,6 +206,107 @@ def test_duplicate_invocation_does_not_duplicate_rows():
 
     rows = supabase.table("daily_content").select("id").eq("date", TEST_CONTENT_DATE.isoformat()).execute().data
     assert len(rows) == 1
+
+
+@requires_daily_content_status_migration
+def test_generated_package_persists_prompt_image_identity_and_hash():
+    original_prompt = "A cat wearing sunglasses on a surfboard"
+    revised_prompt = "A striped cat wearing mirrored sunglasses while surfing"
+    image_bytes = b"identity-specific-png-bytes"
+
+    with _mocked_generation(
+        image_prompt_text=original_prompt,
+        revised_prompt_text=revised_prompt,
+        image_bytes=image_bytes,
+    ) as mocks:
+        cg.generate_content_for_date(TEST_CONTENT_DATE)
+
+    row = supabase.table("daily_content").select("*").eq(
+        "date", TEST_CONTENT_DATE.isoformat()
+    ).execute().data[0]
+    assert row["original_image_prompt"] == original_prompt
+    assert row["effective_image_prompt"] == revised_prompt
+    assert row["image_prompt"] == revised_prompt
+    assert row["image_sha256"] == hashlib.sha256(image_bytes).hexdigest()
+    assert row["image_model"] == cg.IMAGE_MODEL
+    assert row["content_schema_version"] == cg.CONTENT_SCHEMA_VERSION
+    assert row["generator_version"] == cg.GENERATOR_VERSION
+    assert row["validation_result"]["valid"] is True
+    assert row["image_storage_key"] == (
+        f"daily/{TEST_CONTENT_DATE.isoformat()}/{row['package_revision_id']}.png"
+    )
+    assert row["image_url"].endswith(row["image_storage_key"])
+    assert row["image_generated_at"] is not None
+    assert row["image_verified_at"] is not None
+    assert row["validated_at"] is not None
+
+    uploaded_key = mocks.storage_bucket.upload.call_args.args[0]
+    assert uploaded_key == row["image_storage_key"]
+    mocks.storage_bucket.remove.assert_not_called()
+
+    log = supabase.table("daily_content_generation_log").select(
+        "package_revision_id, validation_result"
+    ).eq("content_date", TEST_CONTENT_DATE.isoformat()).eq(
+        "operation", "generate"
+    ).eq("status", "success").execute().data[0]
+    assert log["package_revision_id"] == row["package_revision_id"]
+    assert log["validation_result"]["valid"] is True
+
+
+def test_generated_package_without_provider_revision_uses_original_prompt():
+    with _mocked_generation(revised_prompt_text=None):
+        package = cg.generate_content_package(TEST_CONTENT_DATE)
+
+    assert package["effective_image_prompt"] is None
+    assert package["image_prompt"] == package["original_image_prompt"]
+
+
+def test_each_regenerated_package_gets_a_unique_asset_key():
+    with _mocked_generation():
+        first = cg.generate_content_package(TEST_CONTENT_DATE)
+    with _mocked_generation():
+        second = cg.generate_content_package(TEST_CONTENT_DATE)
+
+    assert first["package_revision_id"] != second["package_revision_id"]
+    assert first["image_storage_key"] != second["image_storage_key"]
+    assert first["image_url"] != second["image_url"]
+    assert first["package_revision_id"] in first["image_storage_key"]
+    assert second["package_revision_id"] in second["image_storage_key"]
+
+
+@requires_daily_content_status_migration
+def test_failed_upload_retry_uses_a_new_immutable_asset_key():
+    with _mocked_generation(
+        storage_upload_side_effect=RuntimeError("simulated partial upload")
+    ) as failed_mocks:
+        with pytest.raises(RuntimeError, match="simulated partial upload"):
+            cg.generate_content_for_date(TEST_CONTENT_DATE)
+    failed_key = failed_mocks.storage_bucket.upload.call_args.args[0]
+    failed_mocks.storage_bucket.remove.assert_not_called()
+
+    with _mocked_generation() as successful_mocks:
+        cg.generate_content_for_date(TEST_CONTENT_DATE)
+    successful_key = successful_mocks.storage_bucket.upload.call_args.args[0]
+    successful_mocks.storage_bucket.remove.assert_not_called()
+
+    assert failed_key != successful_key
+    assert failed_key.startswith(f"daily/{TEST_CONTENT_DATE.isoformat()}/")
+    assert successful_key.startswith(f"daily/{TEST_CONTENT_DATE.isoformat()}/")
+
+    row = supabase.table("daily_content").select(
+        "image_storage_key, package_revision_id"
+    ).eq("date", TEST_CONTENT_DATE.isoformat()).execute().data[0]
+    assert row["image_storage_key"] == successful_key
+    assert row["package_revision_id"] in successful_key
+
+    logs = supabase.table("daily_content_generation_log").select(
+        "status, package_revision_id"
+    ).eq("content_date", TEST_CONTENT_DATE.isoformat()).eq(
+        "operation", "generate"
+    ).execute().data
+    revision_ids = {log["package_revision_id"] for log in logs}
+    assert {"failed", "success"} == {log["status"] for log in logs}
+    assert len(revision_ids) == 2
 
 
 # --- Validation gates: no partial package ever gets stored --------------------------
@@ -306,13 +456,9 @@ def test_publish_is_idempotent():
 
 @requires_daily_content_status_migration
 def test_publish_without_ready_content_activates_fallback():
-    supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-only",
-        "image_url": "https://example.invalid/fallback.png",
-        "image_prompt": "A test fallback image prompt",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(20),
-    }).execute()
+    supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-only", "A test fallback image prompt"
+    )).execute()
 
     result = cg.publish_content_for_date(
         TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
@@ -360,22 +506,17 @@ def test_fallback_insertion_boundary_rejects_invalid_package():
 
 @requires_daily_content_status_migration
 def test_invalid_fallback_is_deactivated_and_next_valid_candidate_is_used():
-    invalid = supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-invalid-first",
-        "image_url": "https://example.invalid/invalid.png",
-        "image_prompt": "An invalid fallback",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(19),
-        "last_used_date": "2099-01-01",
-    }).execute().data[0]
-    valid = supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-valid-second",
-        "image_url": "https://example.invalid/valid.png",
-        "image_prompt": "A valid fallback",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(20),
-        "last_used_date": "2099-05-01",
-    }).execute().data[0]
+    invalid = supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-invalid-first",
+        "An invalid fallback",
+        math_count=19,
+        last_used_date="2099-01-01",
+    )).execute().data[0]
+    valid = supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-valid-second",
+        "A valid fallback",
+        last_used_date="2099-05-01",
+    )).execute().data[0]
 
     result = cg.activate_fallback_for_date(
         TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
@@ -405,13 +546,9 @@ def test_invalid_fallback_is_deactivated_and_next_valid_candidate_is_used():
 
 @requires_daily_content_status_migration
 def test_only_invalid_fallbacks_fail_without_publishing():
-    invalid = supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-only-invalid",
-        "image_url": "https://example.invalid/invalid-only.png",
-        "image_prompt": "The only fallback is invalid",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": [],
-    }).execute().data[0]
+    invalid = supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-only-invalid", "The only fallback is invalid", math_count=0
+    )).execute().data[0]
 
     with pytest.raises(cg.ContentGenerationError, match="no valid fallback"):
         cg.activate_fallback_for_date(
@@ -430,20 +567,12 @@ def test_only_invalid_fallbacks_fail_without_publishing():
 
 @requires_daily_content_status_migration
 def test_fallback_does_not_repeat_previous_day_when_alternative_exists():
-    fb_a = supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-a",
-        "image_url": "https://example.invalid/a.png",
-        "image_prompt": "Fallback A prompt",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(20),
-    }).execute().data[0]
-    fb_b = supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-b",
-        "image_url": "https://example.invalid/b.png",
-        "image_prompt": "Fallback B prompt",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(20),
-    }).execute().data[0]
+    fb_a = supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-a", "Fallback A prompt"
+    )).execute().data[0]
+    fb_b = supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-b", "Fallback B prompt"
+    )).execute().data[0]
 
     first = cg.activate_fallback_for_date(
         TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
@@ -469,13 +598,9 @@ def test_test_scoped_fallback_activation_does_not_mutate_non_test_rows():
         "id, active, last_used_date, times_used"
     ).not_.like("label", f"{TEST_FALLBACK_LABEL_PREFIX}%").order("id").execute().data
 
-    supabase.table("fallback_daily_content").insert({
-        "label": "test-fallback-isolation",
-        "image_url": "https://example.invalid/isolation.png",
-        "image_prompt": "Isolated fallback prompt",
-        "trivia_questions": cg.normalize_trivia_questions(json.loads(_valid_trivia_payload())),
-        "math_problems": cg.generate_math_problems(20),
-    }).execute()
+    supabase.table("fallback_daily_content").insert(_provenanced_fallback(
+        "test-fallback-isolation", "Isolated fallback prompt"
+    )).execute()
     cg.activate_fallback_for_date(
         TEST_CONTENT_DATE, fallback_label_prefix=TEST_FALLBACK_LABEL_PREFIX
     )

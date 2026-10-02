@@ -17,22 +17,44 @@
 # inserted/updated, so there is no partially-generated daily package.
 
 import base64
+import hashlib
 import json
 import logging
 import random
 import re
 from datetime import date, timedelta
+from uuid import uuid4
 
 import httpx
 from openai import OpenAI
 
 from app.config import settings
-from app.content_validation import PackageValidationError, validate_playable_package
+from app.content_validation import (
+    CONTENT_SCHEMA_VERSION,
+    GENERATOR_VERSION,
+    PackageValidationError,
+    validate_daily_package,
+)
 from app.database import supabase
 from app.time_utils import utc_now, utc_today, utc_tomorrow
 
 openai_client = OpenAI(api_key=settings.openai_api_key)
 logger = logging.getLogger("blipz.content_generator")
+IMAGE_MODEL = "gpt-image-1"
+PROVENANCE_FIELDS = (
+    "content_schema_version",
+    "generator_version",
+    "validated_at",
+    "validation_result",
+    "package_revision_id",
+    "original_image_prompt",
+    "effective_image_prompt",
+    "image_storage_key",
+    "image_sha256",
+    "image_model",
+    "image_generated_at",
+    "image_verified_at",
+)
 
 
 class ContentGenerationError(Exception):
@@ -40,10 +62,10 @@ class ContentGenerationError(Exception):
 
 
 def _validate_publishable_package(package: dict, boundary: str) -> None:
-    """Apply the shared pre-migration serviceability gate at a state boundary."""
+    """Apply the complete versioned package contract at a service boundary."""
 
     try:
-        validate_playable_package(package)
+        validate_daily_package(package)
     except PackageValidationError as exc:
         raise ContentGenerationError(f"{boundary} validation failed: {exc}") from exc
 
@@ -165,7 +187,8 @@ def generate_math_problems(count=20):
         })
     return problems
 
-def _generate_image(content_date: date) -> tuple[str, str]:
+
+def _generate_image(content_date: date, package_revision_id: str) -> dict:
     logger.info("Image prompt generation started (content_date=%s)", content_date)
     prompt_response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
@@ -177,31 +200,40 @@ def _generate_image(content_date: date) -> tuple[str, str]:
                        "Example: 'An astronaut eating ramen on the moon watching the sunset'"
         }]
     )
-    image_prompt = prompt_response.choices[0].message.content.strip()
-    if not image_prompt:
+    original_prompt = prompt_response.choices[0].message.content.strip()
+    if not original_prompt:
         raise ContentGenerationError("Image prompt generation returned empty text")
 
     # Never log the prompt itself at INFO — it's the literal Guess answer.
     logger.info("Image generation started (content_date=%s)", content_date)
     image_response = openai_client.images.generate(
-        model="gpt-image-1",
-        prompt=image_prompt,
+        model=IMAGE_MODEL,
+        prompt=original_prompt,
         size="1024x1024",
         quality="auto",
         n=1,
     )
 
     # gpt-image-1 returns base64 directly, not a URL
-    image_data = base64.b64decode(image_response.data[0].b64_json)
+    image_result = image_response.data[0]
+    image_generated_at = utc_now().isoformat()
+    revised_prompt = getattr(image_result, "revised_prompt", None)
+    effective_prompt = (
+        revised_prompt.strip()
+        if isinstance(revised_prompt, str) and revised_prompt.strip()
+        else None
+    )
+    scoring_prompt = effective_prompt or original_prompt
+
+    image_data = base64.b64decode(image_result.b64_json)
     if not image_data:
         raise ContentGenerationError("Image generation returned empty image data")
+    image_sha256 = hashlib.sha256(image_data).hexdigest()
 
-    file_name = f"daily/{content_date.isoformat()}.png"
-
-    try:
-        supabase.storage.from_("blipz-images").remove([file_name])
-    except Exception:
-        pass  # nothing to remove — fine, this is best-effort cleanup of a prior attempt
+    # Every attempt owns a unique object. Never remove or overwrite an earlier key:
+    # failed attempts remain isolated, and a retry cannot silently pair a new prompt
+    # with stale image bytes from a deterministic date-only path.
+    file_name = f"daily/{content_date.isoformat()}/{package_revision_id}.png"
 
     logger.info("Storage upload started (content_date=%s, file=%s)", content_date, file_name)
     supabase.storage.from_("blipz-images").upload(file_name, image_data, {"content-type": "image/png"})
@@ -222,8 +254,19 @@ def _generate_image(content_date: date) -> tuple[str, str]:
     except httpx.HTTPError as e:
         raise ContentGenerationError(f"Could not verify uploaded image URL is reachable: {e}")
 
+    image_verified_at = utc_now().isoformat()
     logger.info("Storage upload verified (content_date=%s)", content_date)
-    return image_prompt, image_url
+    return {
+        "original_image_prompt": original_prompt,
+        "effective_image_prompt": effective_prompt,
+        "image_prompt": scoring_prompt,
+        "image_storage_key": file_name,
+        "image_url": image_url,
+        "image_sha256": image_sha256,
+        "image_model": IMAGE_MODEL,
+        "image_generated_at": image_generated_at,
+        "image_verified_at": image_verified_at,
+    }
 
 
 def _generate_trivia(content_date: date) -> list[dict]:
@@ -261,25 +304,42 @@ def _generate_trivia(content_date: date) -> list[dict]:
     return trivia_questions
 
 
-def generate_content_package(content_date: date) -> dict:
+def generate_content_package(content_date: date, package_revision_id: str | None = None) -> dict:
     """
     Produces one complete, validated daily content package in memory. Never touches
     daily_content — raises ContentGenerationError (or lets the underlying OpenAI/
     storage exception propagate) if ANY part fails, so the caller never has a partial
     package to consider storing.
     """
-    image_prompt, image_url = _generate_image(content_date)
+    package_revision_id = package_revision_id or str(uuid4())
+    image_identity = _generate_image(content_date, package_revision_id)
     trivia_questions = _generate_trivia(content_date)
     math_problems = generate_math_problems(20)
-    return {
-        "image_prompt": image_prompt,
-        "image_url": image_url,
+    package = {
+        "content_schema_version": CONTENT_SCHEMA_VERSION,
+        "generator_version": GENERATOR_VERSION,
+        "package_revision_id": package_revision_id,
+        **image_identity,
         "trivia_questions": trivia_questions,
         "math_problems": math_problems,
+        "validated_at": utc_now().isoformat(),
+        "validation_result": {"valid": True, "validator": "daily-package-v2"},
     }
+    _validate_publishable_package(package, "package-generation")
+    return package
 
 
-def _log_generation_attempt(content_date: date, operation: str, status: str, *, used_fallback=False, error_message=None):
+def _log_generation_attempt(
+    content_date: date,
+    operation: str,
+    status: str,
+    *,
+    used_fallback=False,
+    error_message=None,
+    package_revision_id=None,
+    fallback_source_id=None,
+    validation_result=None,
+):
     try:
         supabase.table("daily_content_generation_log").insert({
             "content_date": content_date.isoformat(),
@@ -287,6 +347,9 @@ def _log_generation_attempt(content_date: date, operation: str, status: str, *, 
             "status": status,
             "used_fallback": used_fallback,
             "error_message": error_message,
+            "package_revision_id": package_revision_id,
+            "fallback_source_id": fallback_source_id,
+            "validation_result": validation_result,
         }).execute()
     except Exception:
         # Observability logging must never itself take down the generation/publish
@@ -313,12 +376,20 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
         return {"message": f"Content already {status}", "date": date_str, "status": status}
 
     logger.info("Daily content generation started (content_date=%s)", content_date)
+    package_revision_id = str(uuid4())
     try:
-        package = generate_content_package(content_date)
+        package = generate_content_package(content_date, package_revision_id=package_revision_id)
         _validate_publishable_package(package, "generation-to-ready")
     except Exception as e:
         logger.exception("Daily content generation failed (content_date=%s)", content_date)
-        _log_generation_attempt(content_date, "generate", "failed", error_message=str(e))
+        _log_generation_attempt(
+            content_date,
+            "generate",
+            "failed",
+            error_message=str(e),
+            package_revision_id=package_revision_id,
+            validation_result={"valid": False, "error": str(e)},
+        )
         raise
 
     now = utc_now().isoformat()
@@ -333,11 +404,18 @@ def generate_content_for_date(content_date: date | None = None) -> dict:
             "generated_at": now,
             "is_fallback": False,
             "fallback_source_id": None,
+            **{field: package[field] for field in PROVENANCE_FIELDS},
         },
         on_conflict="date",
     ).execute()
 
-    _log_generation_attempt(content_date, "generate", "success")
+    _log_generation_attempt(
+        content_date,
+        "generate",
+        "success",
+        package_revision_id=package["package_revision_id"],
+        validation_result=package["validation_result"],
+    )
     logger.info("Daily content generation completed (content_date=%s, status=ready)", content_date)
     return {"message": "Daily content generated successfully", "date": date_str, "status": "ready"}
 
@@ -403,6 +481,9 @@ def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str
                 "failed",
                 used_fallback=True,
                 error_message=error_message,
+                package_revision_id=candidate.get("package_revision_id"),
+                fallback_source_id=candidate["id"],
+                validation_result={"valid": False, "error": str(exc)},
             )
             logger.error(
                 "Invalid fallback deactivated (content_date=%s, fallback_id=%s, label=%s)",
@@ -439,6 +520,7 @@ def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str
             "published_at": now,
             "is_fallback": True,
             "fallback_source_id": chosen["id"],
+            **{field: chosen[field] for field in PROVENANCE_FIELDS},
         },
         on_conflict="date",
     ).execute()
@@ -447,7 +529,15 @@ def activate_fallback_for_date(content_date: date, *, fallback_label_prefix: str
         {"last_used_date": date_str, "times_used": (chosen["times_used"] or 0) + 1}
     ).eq("id", chosen["id"]).execute()
 
-    _log_generation_attempt(content_date, "publish", "success", used_fallback=True)
+    _log_generation_attempt(
+        content_date,
+        "publish",
+        "success",
+        used_fallback=True,
+        package_revision_id=chosen["package_revision_id"],
+        fallback_source_id=chosen["id"],
+        validation_result=chosen["validation_result"],
+    )
     logger.warning(
         "Fallback content activated (content_date=%s, fallback_id=%s, label=%s)",
         content_date, chosen["id"], chosen["label"],
@@ -483,7 +573,12 @@ def publish_content_for_date(
             _validate_publishable_package(existing.data[0], "ready-to-published")
         except ContentGenerationError as exc:
             _log_generation_attempt(
-                content_date, "publish", "failed", error_message=str(exc)
+                content_date,
+                "publish",
+                "failed",
+                error_message=str(exc),
+                package_revision_id=existing.data[0].get("package_revision_id"),
+                validation_result={"valid": False, "error": str(exc)},
             )
             logger.error(
                 "Ready content failed publication validation (content_date=%s, content_id=%s)",
@@ -500,7 +595,13 @@ def publish_content_for_date(
             .execute()
         )
         if result.data:
-            _log_generation_attempt(content_date, "publish", "success")
+            _log_generation_attempt(
+                content_date,
+                "publish",
+                "success",
+                package_revision_id=existing.data[0]["package_revision_id"],
+                validation_result=existing.data[0]["validation_result"],
+            )
             logger.info("Daily content published (content_date=%s)", content_date)
             return {"message": "Published", "date": date_str, "status": "published", "used_fallback": False}
         # Lost the race — another request published it in between our read and write.
