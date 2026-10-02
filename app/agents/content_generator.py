@@ -193,7 +193,12 @@ def generate_math_problems(count=20):
     return problems
 
 
-def _generate_image(content_date: date, package_revision_id: str) -> dict:
+def _generate_image(
+    content_date: date,
+    package_revision_id: str,
+    *,
+    storage_path_prefix: str | None = None,
+) -> dict:
     logger.info("Image prompt generation started (content_date=%s)", content_date)
     prompt_response = openai_client.chat.completions.create(
         model="gpt-4o-mini",
@@ -238,7 +243,8 @@ def _generate_image(content_date: date, package_revision_id: str) -> dict:
     # Every attempt owns a unique object. Never remove or overwrite an earlier key:
     # failed attempts remain isolated, and a retry cannot silently pair a new prompt
     # with stale image bytes from a deterministic date-only path.
-    file_name = f"daily/{content_date.isoformat()}/{package_revision_id}.png"
+    storage_path_prefix = storage_path_prefix or f"daily/{content_date.isoformat()}"
+    file_name = f"{storage_path_prefix}/{package_revision_id}.png"
 
     logger.info("Storage upload started (content_date=%s, file=%s)", content_date, file_name)
     supabase.storage.from_("blipz-images").upload(file_name, image_data, {"content-type": "image/png"})
@@ -309,7 +315,12 @@ def _generate_trivia(content_date: date) -> list[dict]:
     return trivia_questions
 
 
-def generate_content_package(content_date: date, package_revision_id: str | None = None) -> dict:
+def generate_content_package(
+    content_date: date,
+    package_revision_id: str | None = None,
+    *,
+    image_storage_prefix: str | None = None,
+) -> dict:
     """
     Produces one complete, validated daily content package in memory. Never touches
     daily_content — raises ContentGenerationError (or lets the underlying OpenAI/
@@ -317,7 +328,11 @@ def generate_content_package(content_date: date, package_revision_id: str | None
     package to consider storing.
     """
     package_revision_id = package_revision_id or str(uuid4())
-    image_identity = _generate_image(content_date, package_revision_id)
+    image_identity = _generate_image(
+        content_date,
+        package_revision_id,
+        storage_path_prefix=image_storage_prefix,
+    )
     trivia_questions = _generate_trivia(content_date)
     math_problems = generate_math_problems(20)
     package = {
@@ -800,6 +815,52 @@ def seed_fallback_content(placeholder_image_url: str) -> dict:
         supabase.table("fallback_daily_content").insert(candidate).execute()
         inserted.append(package["label"])
     return {"inserted": inserted, "already_present": [p["label"] for p in _FALLBACK_TRIVIA_PACKAGES if p["label"] not in inserted]}
+
+
+def build_inactive_fallback_content(label: str) -> dict:
+    """Generate, validate, and persist one review-only fallback package.
+
+    This deliberately never activates, rotates, or replaces another fallback row.
+    Activation/deactivation is a separate reviewed operation.
+    """
+
+    label = label.strip()
+    if not label:
+        raise ContentGenerationError("Fallback label must be non-empty")
+
+    existing = (
+        supabase.table("fallback_daily_content")
+        .select("id")
+        .eq("label", label)
+        .execute()
+    )
+    if existing.data:
+        raise ContentGenerationError(f"Fallback label already exists: {label}")
+
+    package = generate_content_package(
+        utc_today(),
+        image_storage_prefix="fallback",
+    )
+    candidate = {
+        "label": label,
+        **package,
+        "active": False,
+        "last_used_date": None,
+        "times_used": 0,
+    }
+    _validate_publishable_package(candidate, "fallback-insertion")
+
+    inserted = supabase.table("fallback_daily_content").insert(candidate).execute().data
+    if not inserted:
+        raise ContentGenerationError("Inactive fallback insertion returned no row")
+
+    logger.info(
+        "Inactive fallback created for review (fallback_id=%s, label=%s, package_revision=%s)",
+        inserted[0]["id"],
+        label,
+        package["package_revision_id"],
+    )
+    return inserted[0]
 
 
 async def generate_daily_content():

@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 
 from app.agents import content_generator as cg
 from app.auth import get_current_user_id
+from app.content_validation import validate_daily_package
 from app.database import supabase
 from app.main import app
 from app.time_utils import utc_today, utc_tomorrow
@@ -502,6 +503,58 @@ def test_fallback_insertion_boundary_rejects_invalid_package():
         "label", test_package["label"]
     ).execute().data
     assert rows == []
+
+
+@requires_daily_content_status_migration
+def test_inactive_fallback_builder_creates_current_valid_package_without_rotation_changes():
+    shared_before = supabase.table("fallback_daily_content").select(
+        "id,active,last_used_date,times_used"
+    ).not_.like("label", f"{TEST_FALLBACK_LABEL_PREFIX}%").order("id").execute().data
+
+    with _mocked_generation(
+        image_prompt_text="A robot gardener growing neon sunflowers",
+        revised_prompt_text="A cheerful robot gardener tending luminous neon sunflowers",
+        image_bytes=b"review-only-fallback-image",
+    ) as mocks:
+        row = cg.build_inactive_fallback_content("test-fallback-review-only")
+
+    validate_daily_package(row)
+    assert row["active"] is False
+    assert row["last_used_date"] is None
+    assert row["times_used"] == 0
+    assert row["image_storage_key"] == f"fallback/{row['package_revision_id']}.png"
+    assert row["image_sha256"] == hashlib.sha256(b"review-only-fallback-image").hexdigest()
+    assert row["effective_image_prompt"] == (
+        "A cheerful robot gardener tending luminous neon sunflowers"
+    )
+    assert len(row["math_problems"]) == 20
+    assert len(row["trivia_questions"]) == 5
+    assert mocks.storage_bucket.upload.call_args.args[0] == row["image_storage_key"]
+
+    shared_after = supabase.table("fallback_daily_content").select(
+        "id,active,last_used_date,times_used"
+    ).not_.like("label", f"{TEST_FALLBACK_LABEL_PREFIX}%").order("id").execute().data
+    assert shared_after == shared_before
+
+
+@requires_daily_content_status_migration
+def test_inactive_fallback_builder_rejects_invalid_package_before_insert():
+    with _mocked_generation() as mocks:
+        invalid = cg.generate_content_package(
+            TEST_CONTENT_DATE,
+            image_storage_prefix="fallback",
+        )
+    invalid["math_problems"] = invalid["math_problems"][:-1]
+
+    with patch.object(cg, "generate_content_package", return_value=invalid):
+        with pytest.raises(cg.ContentGenerationError, match="fallback-insertion"):
+            cg.build_inactive_fallback_content("test-fallback-invalid-builder")
+
+    rows = supabase.table("fallback_daily_content").select("id").eq(
+        "label", "test-fallback-invalid-builder"
+    ).execute().data
+    assert rows == []
+    mocks.storage_bucket.remove.assert_not_called()
 
 
 @requires_daily_content_status_migration
