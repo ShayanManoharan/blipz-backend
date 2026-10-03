@@ -167,6 +167,7 @@ def _cleanup_scores_row(user_id: str):
 
 @requires_migration
 @requires_daily_content_status_migration
+@_pytest.mark.usefixtures("isolated_daily_endpoint_env")
 @patch("app.routers.games.score_guess")
 def test_submit_endpoints_produce_normalized_total_for_todays_date(mock_score_guess):
     assert uses_normalized_scoring(date.today()), "this test assumes today is on/after the v2 cutover"

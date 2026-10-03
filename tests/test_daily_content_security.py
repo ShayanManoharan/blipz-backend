@@ -20,6 +20,8 @@ from tests.conftest import requires_daily_content_status_migration
 TEST_USER_ID = "00000000-0000-0000-0000-000000000000"
 REAL_TEST_USER_ID = "d366ce2a-6cbc-48b9-881c-a4560c9dadf5"
 
+pytestmark = pytest.mark.usefixtures("isolated_daily_endpoint_env")
+
 
 def _migration_applied() -> bool:
     try:

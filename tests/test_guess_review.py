@@ -27,13 +27,16 @@ requires_guess_status_migration = pytest.mark.skipif(
     reason="scores.guess_status not present — run sql/migrations.sql's latest block first",
 )
 
+pytestmark = pytest.mark.usefixtures("isolated_daily_endpoint_env")
+
 
 def _cleanup_scores_row(user_id: str):
     today = date.today().isoformat()
     supabase.table("scores").delete().eq("user_id", user_id).eq("date", today).execute()
 
 
-def _override_auth(user_id=REAL_TEST_USER_ID):
+def _override_auth(user_id=None):
+    user_id = user_id or REAL_TEST_USER_ID
     app.dependency_overrides[get_current_user_id] = lambda: user_id
 
 

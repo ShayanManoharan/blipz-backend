@@ -39,6 +39,7 @@ pytestmark = [
         reason="scores.maths_completed etc. not present — run sql/migrations.sql's latest block first",
     ),
     requires_daily_content_status_migration,
+    pytest.mark.usefixtures("isolated_daily_endpoint_env"),
 ]
 
 

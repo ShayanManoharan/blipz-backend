@@ -61,6 +61,7 @@ pytestmark = [
         reason="scores.maths_completed etc. not present — run sql/migrations.sql's latest block first",
     ),
     requires_daily_content_status_migration,
+    pytest.mark.usefixtures("isolated_daily_endpoint_env"),
 ]
 
 
@@ -82,7 +83,8 @@ requires_guess_status_migration = pytest.mark.skipif(
 )
 
 
-def _cleanup(user_id: str = REAL_TEST_USER_ID):
+def _cleanup(user_id: str | None = None):
+    user_id = user_id or REAL_TEST_USER_ID
     today = date.today().isoformat()
     supabase.table("scores").delete().eq("user_id", user_id).eq("date", today).execute()
 
@@ -95,7 +97,8 @@ def _clean_before_and_after():
     app.dependency_overrides.pop(get_current_user_id, None)
 
 
-def _auth_as(user_id: str = REAL_TEST_USER_ID):
+def _auth_as(user_id: str | None = None):
+    user_id = user_id or REAL_TEST_USER_ID
     app.dependency_overrides[get_current_user_id] = lambda: user_id
 
 
