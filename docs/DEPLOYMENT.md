@@ -156,7 +156,7 @@ not yet approved, see below).
 6. Run the staging smoke test (§7 below) against the new HTTPS URL, and separately
    trigger each cron job once from the Render dashboard ("Trigger Run") to confirm
    `BLIPZ_API_BASE_URL` was entered correctly on both — a malformed or missing value
-   here fails the curl inside the cron job, not the smoke test.
+   here fails the HTTP request inside the cron job, not the smoke test.
 
 **Staging cost:** the web service on Render's **Free** plan is **$0/mo** (cold starts
 after ~15 min idle — acceptable for internal testing, not for anything time-sensitive).

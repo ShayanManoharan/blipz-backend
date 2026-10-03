@@ -42,9 +42,7 @@ services:
     # (sync: false) once the blipz-backend-staging web service exists and its real
     # URL is known — see docs/DEPLOYMENT.md's "after deploying" step. Full HTTPS URL,
     # no trailing slash — same value pasted into Staging.xcconfig.
-    dockerCommand: >
-      sh -c "curl -sf -X POST $BLIPZ_API_BASE_URL/admin/generate-content
-      -H \"x-admin-token: $ADMIN_TOKEN\""
+    dockerCommand: python -m app.cron_request /admin/generate-content
     envVars:
       - key: ADMIN_TOKEN
         sync: false
@@ -58,9 +56,7 @@ services:
     schedule: "5 0 * * *"  # 00:05 UTC daily
     # See blipz-generate-tomorrow-staging above for why this is BLIPZ_API_BASE_URL
     # rather than RENDER_EXTERNAL_HOSTNAME.
-    dockerCommand: >
-      sh -c "curl -sf -X POST $BLIPZ_API_BASE_URL/admin/publish-content
-      -H \"x-admin-token: $ADMIN_TOKEN\""
+    dockerCommand: python -m app.cron_request /admin/publish-content
     envVars:
       - key: ADMIN_TOKEN
         sync: false
