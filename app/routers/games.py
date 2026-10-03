@@ -12,7 +12,7 @@
 
 import asyncio
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
@@ -23,7 +23,6 @@ from app.agents.guess_scorer import score_guess
 from app.auth import require_admin_token, get_current_user_id
 from app.database import supabase
 from app.rate_limit import limiter
-from app.scoring import compute_row_total
 from app.time_utils import utc_today
 from app.models.schemas import (
     MathsScoreSubmit, GuessScoreSubmit, TriviaScoreSubmit,
@@ -36,9 +35,6 @@ logger = logging.getLogger("blipz.games")
 
 POSTGRES_UNIQUE_VIOLATION = "23505"
 
-COMPLETED_FIELD = {"maths": "maths_completed", "guess": "guess_completed", "trivia": "trivia_completed"}
-SCORE_FIELD = {"maths": "maths_score", "guess": "guess_score", "trivia": "trivia_score"}
-
 # Very loose sanity floor, not an anti-cheat measure — see PublicMathProblem's own
 # docstring-equivalent comment in schemas.py. This only catches degenerate/zero/
 # scripted-instant submissions, not a determined attacker who sleeps an appropriate
@@ -46,11 +42,10 @@ SCORE_FIELD = {"maths": "maths_score", "guess": "guess_score", "trivia": "trivia
 MIN_PLAUSIBLE_MATHS_SECONDS = 1.0
 
 # --- Guess scoring-attempt reservation (see PRODUCTION_AUDIT.md B23 fix) ------------
-# Closes the concurrency-cost window left by complete_game_attempt's compare-and-swap:
-# that CAS guarantees only one score is ever *persisted*, but does nothing to stop two
-# simultaneous first requests from both calling OpenAI before either writes. These
-# states let the backend atomically reserve the right to call OpenAI at all, so a
-# concurrent request never independently starts its own scoring call.
+# The completion RPC guarantees only one Guess score is ever persisted, but the
+# reservation below also prevents simultaneous first requests from both calling
+# OpenAI before either reaches completion. These states atomically reserve the right
+# to call OpenAI, so a concurrent request never starts an independent scoring call.
 GUESS_STATUS_NOT_STARTED = "not_started"
 GUESS_STATUS_SCORING = "scoring"
 GUESS_STATUS_COMPLETED = "completed"
@@ -68,26 +63,6 @@ GUESS_SCORING_STALE_AFTER_SECONDS = 30
 # doesn't, the caller gets a 202 telling it to retry shortly instead of an error.
 GUESS_WAIT_POLL_ATTEMPTS = 4
 GUESS_WAIT_POLL_INTERVAL_SECONDS = 0.5
-
-
-def update_streak(user_id: str, today: str):
-    user = supabase.table("users").select("current_streak, longest_streak").eq("id", user_id).execute()
-    if not user.data:
-        return
-
-    current_streak = user.data[0]["current_streak"]
-    longest_streak = user.data[0]["longest_streak"]
-
-    yesterday = (date.fromisoformat(today) - timedelta(days=1)).isoformat()
-    played_yesterday = supabase.table("scores").select("id").eq("user_id", user_id).eq("date", yesterday).execute()
-
-    new_streak = current_streak + 1 if played_yesterday.data else 1
-    new_longest = max(longest_streak, new_streak)
-
-    supabase.table("users").update({
-        "current_streak": new_streak,
-        "longest_streak": new_longest
-    }).eq("id", user_id).execute()
 
 
 def get_today_score_row(user_id: str, today: str):
@@ -116,82 +91,29 @@ def complete_game_attempt(user_id: str, today: str, game: str, score, extra_fiel
     completed, the row returned is the ORIGINAL stored result — this function never
     overwrites a prior completion, regardless of what `score` is passed this time.
 
-    Concurrency: relies on the existing UNIQUE(user_id, date) constraint on `scores`
-    for the insert race, and an atomic conditional UPDATE (`.eq(completed_field, False)`)
-    for the same-game double-submit race — both are single PostgREST/Postgres
-    statements, so Postgres's own row-level locking serializes concurrent callers
-    correctly without any extra application-level locking.
+    Completion, total-score recomputation, first-completion detection, and streak
+    advancement are one database transaction. The RPC locks the user and score rows,
+    so concurrent first completions and stale retries are serialized and idempotent.
     """
-    completed_field = COMPLETED_FIELD[game]
-    score_field = SCORE_FIELD[game]
     extra_fields = extra_fields or {}
-
-    existing = get_today_score_row(user_id, today)
-
-    if existing is None:
-        maths = score if game == "maths" else 0
-        trivia = score if game == "trivia" else 0
-        guess = score if game == "guess" else 0
-        maths_elapsed = extra_fields.get("maths_elapsed_seconds") if game == "maths" else None
-        total = compute_row_total(
-            today, maths_correct=maths, trivia_correct=trivia, guess_score=guess, maths_elapsed_seconds=maths_elapsed
-        )
-
-        insert_data = {
-            "user_id": user_id,
-            "date": today,
-            "maths_score": maths,
-            "trivia_score": trivia,
-            "guess_score": guess,
-            "total_score": total,
-            completed_field: True,
-            **extra_fields,
-        }
-        try:
-            supabase.table("scores").insert(insert_data).execute()
-            update_streak(user_id, today)
-            return get_today_score_row(user_id, today), False
-        except APIError as e:
-            if e.code != POSTGRES_UNIQUE_VIOLATION:
-                raise
-            # Lost the insert race — another request (for this or a different game)
-            # created today's row first. Fall through to the update path below.
-            existing = get_today_score_row(user_id, today)
-
-    if existing.get(completed_field):
-        return existing, True
-
-    new_maths = score if game == "maths" else existing["maths_score"]
-    new_trivia = score if game == "trivia" else existing["trivia_score"]
-    new_guess = score if game == "guess" else float(existing["guess_score"])
-    new_maths_elapsed = (
-        extra_fields.get("maths_elapsed_seconds") if game == "maths" else existing.get("maths_elapsed_seconds")
-    )
-    total = compute_row_total(
-        today,
-        maths_correct=new_maths,
-        trivia_correct=new_trivia,
-        guess_score=new_guess,
-        maths_elapsed_seconds=new_maths_elapsed,
-    )
-
-    update_data = {score_field: score, completed_field: True, "total_score": total, **extra_fields}
-
-    result = (
-        supabase.table("scores")
-        .update(update_data)
-        .eq("user_id", user_id)
-        .eq("date", today)
-        .eq(completed_field, False)  # atomic compare-and-swap guard
-        .execute()
-    )
+    result = supabase.rpc(
+        "complete_game_attempt_atomic",
+        {
+            "p_user_id": user_id,
+            "p_date": today,
+            "p_game": game,
+            "p_score": score,
+            "p_maths_elapsed_seconds": extra_fields.get("maths_elapsed_seconds"),
+            "p_guess_text": extra_fields.get("guess_text"),
+            "p_trivia_answers": extra_fields.get("trivia_answers"),
+        },
+    ).execute()
 
     if not result.data:
-        # Lost the update race — someone else completed this exact game for this row
-        # between our read and our write. Their result is authoritative, not ours.
-        return get_today_score_row(user_id, today), True
+        raise RuntimeError("complete_game_attempt_atomic returned no result")
 
-    return result.data[0], False
+    rpc_result = result.data[0]
+    return rpc_result["score_row"], rpc_result["already_completed"]
 
 
 def _utcnow_iso() -> str:
