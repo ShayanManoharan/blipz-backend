@@ -70,11 +70,13 @@ class LocalDB:
 
     def migrate(self,name):self.sql((ROOT/'sql'/name).read_text())
 
-    def seed(self):
+    def seed(self,day_offset=0):
+        assert type(day_offset) is int and abs(day_offset)<=1
         c=json.loads((ROOT/'docs/v2-contracts/fixtures/content.json').read_text())
         # Only this harness changes synthetic timestamps/approval. These are local DB
         # fixtures, never claims about reviewed or production-approved content.
         self.sql('TRUNCATE blipz_v2.daily_activity,blipz_v2.daily_game_attempts,blipz_v2.daily_results,blipz_v2.daily_game_instances,blipz_v2.daily_challenges,blipz_v2_private.game_solutions,blipz_v2.game_content_revisions,blipz_v2.fallback_packages CASCADE;')
+        self.sql("DELETE FROM public.scores WHERE user_id IN (SELECT id FROM public.users WHERE username LIKE 'local_db_%');")
         user=str(uuid4()); challenge=c['challenge']['id']
         statements=['BEGIN;',f"INSERT INTO public.users(id,username,current_streak,longest_streak) VALUES ({literal(user)},{literal('local_db_'+user)},0,0);"]
         for r in c['revisions'][:4]:
@@ -84,7 +86,7 @@ class LocalDB:
             normalized=[normalize_answer(a) for a in aliases]
             statements.append(f"INSERT INTO blipz_v2.game_content_revisions(id,game_type,variant,schema_version,generator_version,status,public_payload,content_sha256,validation,validated_at,approved_by,approved_at) VALUES ({literal(r['id'])},{literal(r['game_type'])},{literal(r['variant'])},1,'isolated-test-only','approved',{literal(r['public_payload'])}::jsonb,{literal(r['validation']['content_sha256'])},'{{\"human_approval\":\"approved\"}}',clock_timestamp(),'isolated-fixture',clock_timestamp());")
             statements.append(f"INSERT INTO blipz_v2_private.game_solutions(content_revision_id,solution_payload,normalized_aliases) VALUES ({literal(r['id'])},{literal(private)}::jsonb,ARRAY[{','.join(literal(a) for a in normalized)}]::text[]);")
-        statements.append(f"INSERT INTO blipz_v2.daily_challenges(id,date,lineup_revision,status,opens_at,closes_at) VALUES ({literal(challenge)},(clock_timestamp() AT TIME ZONE 'UTC')::date,{literal(c['challenge']['lineup_revision'])},'draft',date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',(date_trunc('day',clock_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')+interval '24 hours');")
+        statements.append(f"INSERT INTO blipz_v2.daily_challenges(id,date,lineup_revision,status,opens_at,closes_at) VALUES ({literal(challenge)},(clock_timestamp() AT TIME ZONE 'UTC')::date+{day_offset},{literal(c['challenge']['lineup_revision'])},'draft',date_trunc('day',(clock_timestamp() AT TIME ZONE 'UTC')+({day_offset}*interval '24 hours')) AT TIME ZONE 'UTC',(date_trunc('day',(clock_timestamp() AT TIME ZONE 'UTC')+({day_offset}*interval '24 hours')) AT TIME ZONE 'UTC')+interval '24 hours');")
         for i in c['challenge']['games']:
             statements.append(f"INSERT INTO blipz_v2.daily_game_instances(id,challenge_id,position,game_type,variant,content_revision_id,title,presentation_role,max_points_units,answer_policy) VALUES ({literal(i['id'])},{literal(challenge)},{i['position']},{literal(i['game_type'])},{literal(i['variant'])},{literal(i['content_revision_id'])},{literal(i['title'])},{literal(i['presentation_role'])},2500,{literal(i['answer_policy'])}::jsonb);")
         statements.append(f"UPDATE blipz_v2.daily_challenges SET status='published',published_at=clock_timestamp() WHERE id={literal(challenge)}; COMMIT;")

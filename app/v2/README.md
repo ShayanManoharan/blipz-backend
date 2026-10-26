@@ -49,3 +49,10 @@ python3 -B docs/v2-contracts/check_fixtures.py
 
 Tests block network operations and verify a clean-process import cannot pull in
 V1 configuration or external clients. No existing V1 application file is changed.
+
+
+`rpc_inputs.py` is a pure service-side argument adapter for the separately reviewed
+V2 SQL RPCs. It preserves raw answers and derives normalized typed text; clients
+must never supply that internal normalized argument. It makes no database calls
+and registers no route. The SQL migration and disposable database tests live in
+`sql/20261026_v2_gameplay.sql` and `tests_database/` respectively.

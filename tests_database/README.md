@@ -41,3 +41,52 @@ scaffold only; no fallback/generation/publication system is implemented.
 
 This phase does not expose schemas through PostgREST, register HTTP routes, change
 the existing V1 completion RPC, or enforce the future HTTP V1/V2 cutover gate.
+
+
+## Atomic gameplay migration
+
+Apply order in the disposable harness: `20261026_v2_schema.sql`, then
+`20261026_v2_gameplay.sql`. This is not approval to apply either to Supabase.
+The gameplay migration adds three service-role-only SECURITY DEFINER functions:
+`start_game_attempt`, `reveal_game_choices`, and `submit_game_answer` in
+`blipz_v2`. Every function pins `search_path=pg_catalog` and uses fully qualified
+application relations. Private helper functions have no caller EXECUTE grants.
+The second migration also closes SQL CHECK's UNKNOWN/null answer-kind edge case
+with an explicit constraint on the new V2 attempts table.
+
+All mutations lock user -> daily result -> attempt. The user's lock serializes
+simultaneous games, first-activity insertion and streak advancement. Actual clock
+reads occur after lock waits; elapsed milliseconds are database wall-clock time,
+not active-thinking time or an anti-cheat guarantee. Deadline checks are inclusive
+at opening and exclusive at UTC closing. Completed retries bypass deadline checks
+and return the original final attempt. A completed attempt is never reset.
+
+Typed inputs cross a TRUSTED BACKEND boundary: `app/v2/rpc_inputs.py` derives
+`p_normalized_text` from a validated raw answer using existing normalization v1.
+That argument must never come from client JSON. Approved aliases are normalized by
+the same trusted Python code before immutable solution insertion. PostgreSQL 17
+lower() is not Unicode casefold(), so SQL deliberately does not approximate it.
+The RPC compares the normalized value with immutable normalized aliases and
+computes correctness/points itself; no score or client elapsed time is accepted.
+SQL permissions restrict this interface to service_role, and typed submissions
+without backend normalization are rejected. Raw answer text remains unchanged in
+the attempt. HTTP authentication and wiring remain future work.
+
+The fixture loader's approval flags are explicitly synthetic database fixtures;
+they are not editorial approval or production publication. Tests may shift their
+own challenge date by one day to exercise closed/future windows. No server clock
+is changed and no real published content is used.
+
+Concurrency tests use independent psql sessions, hold the user row lock, and
+verify both contenders are actually waiting on PostgreSQL locks before release.
+The suite covers reveal/submit, duplicate typed/choice submissions, two starts,
+simultaneous game completions, zero-point activity, timer preservation, exact UTC
+closing, terminal retry after midnight, safe search paths and deferred failure
+rollback of attempt + result + activity + user streak. UTC-day conflict checking
+covers all users' V1 completions; it does not replace the future HTTP cutover gate
+because the unchanged V1 RPC cannot consult V2 state.
+
+Verified local counts for this phase: 27 schema tests and 37 gameplay tests,
+64 total. V2 pure tests: 241 passed. Existing offline V1 subset: 113 passed,
+1 database-dependent skip. Documentation fixture checks: 22 passed. Shared/live
+Supabase integration tests remain intentionally unrun.
