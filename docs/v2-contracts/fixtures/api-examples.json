@@ -1,0 +1,797 @@
+{
+  "fixture_only": true,
+  "note": "Independent local contract examples, not one HTTP session, not deployed endpoints, and not captured responses. Reveal shows a different synthetic assisted player from the typed-submit example.",
+  "examples": [
+    {
+      "name": "today",
+      "method": "GET",
+      "route": "/v2/challenges/today",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge": {
+          "id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "date": "2099-12-29",
+          "product_version": "blipz-v2",
+          "contract_version": "v2.1",
+          "scoring_version": "v2-equal25-v1",
+          "ranking_version": "v2-rank-v1",
+          "lineup_revision": "33da6d4c-50c1-55d8-8dd7-75036bc5df73",
+          "status": "published",
+          "opens_at": "2099-12-29T00:00:00.000Z",
+          "closes_at": "2099-12-30T00:00:00.000Z",
+          "published_at": "2099-12-29T00:00:00.000Z",
+          "required_game_count": 4,
+          "max_points_units": 10000,
+          "is_fallback": false,
+          "fallback_source_id": null,
+          "games": [
+            {
+              "id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+              "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+              "position": 1,
+              "game_type": "hidden_rule",
+              "variant": null,
+              "content_revision_id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+              "title": "Find the number rule",
+              "presentation_role": "hero",
+              "max_points_units": 2500,
+              "answer_policy": {
+                "mode": "typed_or_optional_choices",
+                "final_submissions": 1,
+                "choice_count": 4,
+                "assisted_cap_bps": 7500,
+                "hints_enabled": false
+              }
+            },
+            {
+              "id": "26d33cf0-6a07-5718-83ab-687d6e614bc1",
+              "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+              "position": 2,
+              "game_type": "riddle",
+              "variant": null,
+              "content_revision_id": "3de38de4-6132-56ec-b4aa-6acc0f646afa",
+              "title": "Keys without locks",
+              "presentation_role": "compact",
+              "max_points_units": 2500,
+              "answer_policy": {
+                "mode": "typed_or_optional_choices",
+                "final_submissions": 1,
+                "choice_count": 4,
+                "assisted_cap_bps": 7500,
+                "hints_enabled": false
+              }
+            },
+            {
+              "id": "bf4be0a6-7716-5800-ac91-35a2c8e19482",
+              "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+              "position": 3,
+              "game_type": "trivia",
+              "variant": null,
+              "content_revision_id": "7d95882c-7b68-56ee-b3db-acc291b50160",
+              "title": "Daily Trivia",
+              "presentation_role": "compact",
+              "max_points_units": 2500,
+              "answer_policy": {
+                "mode": "native_mcq_set",
+                "final_submissions": 1,
+                "choice_count": 4,
+                "assisted_cap_bps": 10000,
+                "hints_enabled": false
+              }
+            },
+            {
+              "id": "8717aeb4-d718-5d87-a6f3-468d0978cbbd",
+              "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+              "position": 4,
+              "game_type": "world_guess",
+              "variant": "flag",
+              "content_revision_id": "27526483-1d9a-5bfb-baff-6fb3ff2f1bbe",
+              "title": "Name the country",
+              "presentation_role": "compact",
+              "max_points_units": 2500,
+              "answer_policy": {
+                "mode": "typed_or_optional_choices",
+                "final_submissions": 1,
+                "choice_count": 4,
+                "assisted_cap_bps": 7500,
+                "hints_enabled": false
+              }
+            }
+          ]
+        },
+        "server_time": "2099-12-29T12:00:00.000Z"
+      }
+    },
+    {
+      "name": "progress",
+      "method": "GET",
+      "route": "/v2/challenges/6ad66339-4ef3-5de7-bc37-2c5523bab66c/progress",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "date": "2099-12-29",
+        "as_of": "2099-12-29T12:00:00.000Z",
+        "games": [
+          {
+            "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+            "state": "active",
+            "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786",
+            "started_at": "2099-12-29T12:00:00.000Z",
+            "choices_revealed": false,
+            "available_points_units": 2500,
+            "result": null
+          },
+          {
+            "game_instance_id": "26d33cf0-6a07-5718-83ab-687d6e614bc1",
+            "state": "not_started",
+            "attempt_id": null,
+            "started_at": null,
+            "choices_revealed": false,
+            "available_points_units": 2500,
+            "result": null
+          },
+          {
+            "game_instance_id": "bf4be0a6-7716-5800-ac91-35a2c8e19482",
+            "state": "not_started",
+            "attempt_id": null,
+            "started_at": null,
+            "choices_revealed": false,
+            "available_points_units": 2500,
+            "result": null
+          },
+          {
+            "game_instance_id": "8717aeb4-d718-5d87-a6f3-468d0978cbbd",
+            "state": "not_started",
+            "attempt_id": null,
+            "started_at": null,
+            "choices_revealed": false,
+            "available_points_units": 2500,
+            "result": null
+          }
+        ],
+        "daily_result": {
+          "id": "7757d472-1eaa-50d8-8c56-9592229059f6",
+          "user_id": "52048feb-c7ca-5a3e-9a1a-35042fe2eae1",
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "date": "2099-12-29",
+          "product_version": "blipz-v2",
+          "scoring_version": "v2-equal25-v1",
+          "state": "in_progress",
+          "completed_game_count": 0,
+          "required_game_count": 4,
+          "total_points_units": 0,
+          "max_points_units": 10000,
+          "total_elapsed_ms": 0,
+          "completed_at": null,
+          "overall_eligible": false,
+          "games": []
+        },
+        "activity_recorded": false,
+        "current_streak": 2,
+        "longest_streak": 5
+      }
+    },
+    {
+      "name": "start",
+      "method": "POST",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/start",
+      "request": {
+        "idempotency_key": "f82815b5-a190-5da1-82ff-653eaf33c8e0"
+      },
+      "status": 200,
+      "response": {
+        "attempt": {
+          "id": "f32924fd-7235-5963-a4a8-ee8f07e5d786",
+          "user_id": "52048feb-c7ca-5a3e-9a1a-35042fe2eae1",
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+          "content_revision_id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+          "game_type": "hidden_rule",
+          "challenge_date": "2099-12-29",
+          "state": "active",
+          "started_at": "2099-12-29T12:00:00.000Z",
+          "choices_revealed_at": null,
+          "completed_at": null,
+          "elapsed_ms": null,
+          "clock_source": "database_wall_clock",
+          "timing_version": "wall-clock-v1",
+          "choices_revealed": false,
+          "answer_mode": null,
+          "final_answer": null,
+          "correct_count": null,
+          "question_count": null,
+          "is_correct": null,
+          "accuracy_bps": null,
+          "max_points_units": 2500,
+          "available_points_units": 2500,
+          "awarded_points_units": null,
+          "score_percentage_bps": null,
+          "scoring_version": "v2-equal25-v1",
+          "grading_version": "local-deterministic-fixture-v1",
+          "completion_idempotency_key": null
+        },
+        "content": {
+          "id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+          "game_type": "hidden_rule",
+          "variant": null,
+          "schema_version": 1,
+          "public_payload": {
+            "kind": "hidden_rule",
+            "title": "Find the number rule",
+            "domain": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 99
+            },
+            "belongs": [
+              6,
+              12,
+              21,
+              30
+            ],
+            "does_not_belong": [
+              7,
+              14,
+              22,
+              31
+            ],
+            "answer_instruction": "Describe which numbers belong in one short phrase."
+          }
+        },
+        "server_time": "2099-12-29T12:00:00.000Z",
+        "closes_at": "2099-12-30T00:00:00.000Z",
+        "already_started": false,
+        "already_completed": false
+      }
+    },
+    {
+      "name": "reveal",
+      "method": "POST",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/choices/reveal",
+      "request": {
+        "idempotency_key": "d4270606-f494-5cf9-b249-165d9e374af3"
+      },
+      "status": 200,
+      "response": {
+        "attempt_id": "00d18bd2-4741-5cde-9ebc-80e8708b5f6d",
+        "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+        "choices": [
+          {
+            "id": "A",
+            "text": "Even numbers"
+          },
+          {
+            "id": "B",
+            "text": "Multiples of three"
+          },
+          {
+            "id": "C",
+            "text": "Multiples of five"
+          },
+          {
+            "id": "D",
+            "text": "Multiples of ten"
+          }
+        ],
+        "choices_revealed_at": "2099-12-29T12:00:02.000Z",
+        "available_points_units": 1875,
+        "already_revealed": false
+      }
+    },
+    {
+      "name": "submit",
+      "method": "POST",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/submit",
+      "request": {
+        "idempotency_key": "f82815b5-a190-5da1-82ff-653eaf33c8e0",
+        "answer": {
+          "kind": "typed",
+          "text": "divisible by 3"
+        }
+      },
+      "status": 200,
+      "response": {
+        "attempt": {
+          "id": "f32924fd-7235-5963-a4a8-ee8f07e5d786",
+          "user_id": "52048feb-c7ca-5a3e-9a1a-35042fe2eae1",
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+          "content_revision_id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+          "game_type": "hidden_rule",
+          "challenge_date": "2099-12-29",
+          "state": "completed_correct",
+          "started_at": "2099-12-29T12:00:00.000Z",
+          "choices_revealed_at": null,
+          "completed_at": "2099-12-29T12:00:40.000Z",
+          "elapsed_ms": 40000,
+          "clock_source": "database_wall_clock",
+          "timing_version": "wall-clock-v1",
+          "choices_revealed": false,
+          "answer_mode": "typed",
+          "final_answer": {
+            "kind": "typed",
+            "text": "divisible by 3"
+          },
+          "correct_count": 1,
+          "question_count": 1,
+          "is_correct": true,
+          "accuracy_bps": 10000,
+          "max_points_units": 2500,
+          "available_points_units": 2500,
+          "awarded_points_units": 2500,
+          "score_percentage_bps": 10000,
+          "scoring_version": "v2-equal25-v1",
+          "grading_version": "local-deterministic-fixture-v1",
+          "completion_idempotency_key": "f82815b5-a190-5da1-82ff-653eaf33c8e0"
+        },
+        "daily_result": {
+          "id": "7757d472-1eaa-50d8-8c56-9592229059f6",
+          "user_id": "52048feb-c7ca-5a3e-9a1a-35042fe2eae1",
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "date": "2099-12-29",
+          "product_version": "blipz-v2",
+          "scoring_version": "v2-equal25-v1",
+          "state": "in_progress",
+          "completed_game_count": 1,
+          "required_game_count": 4,
+          "total_points_units": 2500,
+          "max_points_units": 10000,
+          "total_elapsed_ms": 40000,
+          "completed_at": null,
+          "overall_eligible": false,
+          "games": [
+            {
+              "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+              "game_type": "hidden_rule",
+              "state": "completed_correct",
+              "awarded_points_units": 2500,
+              "max_points_units": 2500,
+              "elapsed_ms": 40000,
+              "answer_mode": "typed",
+              "accuracy_bps": 10000,
+              "score_percentage_bps": 10000,
+              "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786"
+            }
+          ]
+        },
+        "already_completed": false,
+        "review_available": true,
+        "activity_created": true,
+        "current_streak": 3,
+        "longest_streak": 5
+      }
+    },
+    {
+      "name": "review",
+      "method": "GET",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/review",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+        "content_revision_id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+        "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786",
+        "date": "2099-12-29",
+        "game_type": "hidden_rule",
+        "result": {
+          "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+          "game_type": "hidden_rule",
+          "state": "completed_correct",
+          "awarded_points_units": 2500,
+          "max_points_units": 2500,
+          "elapsed_ms": 40000,
+          "answer_mode": "typed",
+          "accuracy_bps": 10000,
+          "score_percentage_bps": 10000,
+          "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786"
+        },
+        "public_payload": {
+          "kind": "hidden_rule",
+          "title": "Find the number rule",
+          "domain": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 99
+          },
+          "belongs": [
+            6,
+            12,
+            21,
+            30
+          ],
+          "does_not_belong": [
+            7,
+            14,
+            22,
+            31
+          ],
+          "answer_instruction": "Describe which numbers belong in one short phrase."
+        },
+        "canonical_answer": "Multiples of three",
+        "explanation": "A number belongs exactly when it is divisible by three with no remainder. All four positive examples divide evenly; none of the negative examples do.",
+        "items": [
+          {
+            "question_id": null,
+            "submitted_answer": "divisible by 3",
+            "correct_answer": "Multiples of three",
+            "is_correct": true,
+            "explanation": "A number belongs exactly when it is divisible by three with no remainder. All four positive examples divide evenly; none of the negative examples do."
+          }
+        ]
+      }
+    },
+    {
+      "name": "result",
+      "method": "GET",
+      "route": "/v2/challenges/6ad66339-4ef3-5de7-bc37-2c5523bab66c/result",
+      "request": null,
+      "status": 200,
+      "response": {
+        "result": {
+          "id": "7757d472-1eaa-50d8-8c56-9592229059f6",
+          "user_id": "52048feb-c7ca-5a3e-9a1a-35042fe2eae1",
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "date": "2099-12-29",
+          "product_version": "blipz-v2",
+          "scoring_version": "v2-equal25-v1",
+          "state": "completed",
+          "completed_game_count": 4,
+          "required_game_count": 4,
+          "total_points_units": 8875,
+          "max_points_units": 10000,
+          "total_elapsed_ms": 150000,
+          "completed_at": "2099-12-29T12:03:00.000Z",
+          "overall_eligible": true,
+          "games": [
+            {
+              "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+              "game_type": "hidden_rule",
+              "state": "completed_correct",
+              "awarded_points_units": 2500,
+              "max_points_units": 2500,
+              "elapsed_ms": 40000,
+              "answer_mode": "typed",
+              "accuracy_bps": 10000,
+              "score_percentage_bps": 10000,
+              "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786"
+            },
+            {
+              "game_instance_id": "26d33cf0-6a07-5718-83ab-687d6e614bc1",
+              "game_type": "riddle",
+              "state": "completed_correct",
+              "awarded_points_units": 1875,
+              "max_points_units": 2500,
+              "elapsed_ms": 20000,
+              "answer_mode": "assisted_mcq",
+              "accuracy_bps": 10000,
+              "score_percentage_bps": 7500,
+              "attempt_id": "6fe689dc-ebfa-5ea8-8d33-2fef6768d5bc"
+            },
+            {
+              "game_instance_id": "bf4be0a6-7716-5800-ac91-35a2c8e19482",
+              "game_type": "trivia",
+              "state": "completed_incorrect",
+              "awarded_points_units": 2000,
+              "max_points_units": 2500,
+              "elapsed_ms": 60000,
+              "answer_mode": "native_mcq",
+              "accuracy_bps": 8000,
+              "score_percentage_bps": 8000,
+              "attempt_id": "6c4b6aa5-7ec6-5aef-b85c-850dc5db32d8"
+            },
+            {
+              "game_instance_id": "8717aeb4-d718-5d87-a6f3-468d0978cbbd",
+              "game_type": "world_guess",
+              "state": "completed_correct",
+              "awarded_points_units": 2500,
+              "max_points_units": 2500,
+              "elapsed_ms": 30000,
+              "answer_mode": "typed",
+              "accuracy_bps": 10000,
+              "score_percentage_bps": 10000,
+              "attempt_id": "3068b06e-2259-5799-803c-a557cfd0282f"
+            }
+          ]
+        },
+        "server_time": "2099-12-29T13:00:00.000Z"
+      }
+    },
+    {
+      "name": "overall_leaderboard",
+      "method": "GET",
+      "route": "/v2/challenges/6ad66339-4ef3-5de7-bc37-2c5523bab66c/leaderboard?limit=50",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "ranking_version": "v2-rank-v1",
+        "as_of": "2099-12-29T13:00:00.000Z",
+        "eligible_population": 1,
+        "rows": [
+          {
+            "rank": 1,
+            "performance_rank": 1,
+            "player": {
+              "player_id": "4c46dc98-d1b6-5750-8b0b-ac611be4fbe8",
+              "username": "local_fixture_day_player"
+            },
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "total_points_units": 8875,
+            "max_points_units": 10000,
+            "total_elapsed_ms": 150000,
+            "completed_at": "2099-12-29T12:03:00.000Z"
+          }
+        ],
+        "self": {
+          "rank": 1,
+          "performance_rank": 1,
+          "player": {
+            "player_id": "4c46dc98-d1b6-5750-8b0b-ac611be4fbe8",
+            "username": "local_fixture_day_player"
+          },
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "total_points_units": 8875,
+          "max_points_units": 10000,
+          "total_elapsed_ms": 150000,
+          "completed_at": "2099-12-29T12:03:00.000Z"
+        },
+        "next_cursor": null
+      }
+    },
+    {
+      "name": "game_leaderboard",
+      "method": "GET",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/leaderboard?limit=50",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+        "ranking_version": "v2-rank-v1",
+        "as_of": "2099-12-29T13:00:00.000Z",
+        "eligible_population": 4,
+        "rows": [
+          {
+            "rank": 1,
+            "performance_rank": 1,
+            "player": {
+              "player_id": "d4f257c8-4951-5c71-b821-db7ca3c2e120",
+              "username": "local_fixture_e0f4243f"
+            },
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+            "game_type": "hidden_rule",
+            "awarded_points_units": 2500,
+            "max_points_units": 2500,
+            "score_percentage_bps": 10000,
+            "accuracy_bps": 10000,
+            "correct_count": 1,
+            "question_count": 1,
+            "choices_revealed": false,
+            "answer_mode": "typed",
+            "elapsed_ms": 40000,
+            "completed_at": "2099-12-29T12:00:40.000Z"
+          },
+          {
+            "rank": 2,
+            "performance_rank": 2,
+            "player": {
+              "player_id": "8623e4b8-1022-5bf8-b00a-91adfd1c72f5",
+              "username": "local_fixture_e5439be5"
+            },
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+            "game_type": "hidden_rule",
+            "awarded_points_units": 2500,
+            "max_points_units": 2500,
+            "score_percentage_bps": 10000,
+            "accuracy_bps": 10000,
+            "correct_count": 1,
+            "question_count": 1,
+            "choices_revealed": false,
+            "answer_mode": "typed",
+            "elapsed_ms": 60000,
+            "completed_at": "2099-12-29T12:01:00.000Z"
+          },
+          {
+            "rank": 3,
+            "performance_rank": 3,
+            "player": {
+              "player_id": "5e7bc35b-0d18-5330-9a36-39a5e9b2f4df",
+              "username": "local_fixture_9f281ab1"
+            },
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+            "game_type": "hidden_rule",
+            "awarded_points_units": 1875,
+            "max_points_units": 2500,
+            "score_percentage_bps": 7500,
+            "accuracy_bps": 10000,
+            "correct_count": 1,
+            "question_count": 1,
+            "choices_revealed": true,
+            "answer_mode": "assisted_mcq",
+            "elapsed_ms": 8000,
+            "completed_at": "2099-12-29T12:00:08.000Z"
+          },
+          {
+            "rank": 4,
+            "performance_rank": 4,
+            "player": {
+              "player_id": "8fb9b432-6613-5ee1-9a56-8e8bb44b0c42",
+              "username": "local_fixture_1199e50b"
+            },
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+            "game_type": "hidden_rule",
+            "awarded_points_units": 0,
+            "max_points_units": 2500,
+            "score_percentage_bps": 0,
+            "accuracy_bps": 0,
+            "correct_count": 0,
+            "question_count": 1,
+            "choices_revealed": false,
+            "answer_mode": "typed",
+            "elapsed_ms": 5000,
+            "completed_at": "2099-12-29T12:00:05.000Z"
+          }
+        ],
+        "self": {
+          "rank": 1,
+          "performance_rank": 1,
+          "player": {
+            "player_id": "d4f257c8-4951-5c71-b821-db7ca3c2e120",
+            "username": "local_fixture_e0f4243f"
+          },
+          "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+          "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+          "game_type": "hidden_rule",
+          "awarded_points_units": 2500,
+          "max_points_units": 2500,
+          "score_percentage_bps": 10000,
+          "accuracy_bps": 10000,
+          "correct_count": 1,
+          "question_count": 1,
+          "choices_revealed": false,
+          "answer_mode": "typed",
+          "elapsed_ms": 40000,
+          "completed_at": "2099-12-29T12:00:40.000Z"
+        },
+        "next_cursor": null
+      }
+    },
+    {
+      "name": "rank_summary",
+      "method": "GET",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/rank-summary",
+      "request": null,
+      "status": 200,
+      "response": {
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+        "player_id": "d4f257c8-4951-5c71-b821-db7ca3c2e120",
+        "as_of": "2099-12-29T13:00:00.000Z",
+        "ranking_version": "v2-rank-v1",
+        "eligible": true,
+        "rank": 1,
+        "performance_rank": 1,
+        "eligible_population": 4,
+        "strictly_better_count": 0,
+        "tied_performance_count": 1,
+        "percentile_bps": null,
+        "top_percent_display": null,
+        "minimum_population": 100,
+        "percentile_suppression_reason": "population_below_100"
+      }
+    },
+    {
+      "name": "history",
+      "method": "GET",
+      "route": "/v2/users/me/history?limit=30",
+      "request": null,
+      "status": 200,
+      "response": {
+        "rows": [
+          {
+            "date": "2099-12-29",
+            "product_version": "blipz-v2",
+            "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+            "scoring_version": "v2-equal25-v1",
+            "total_points_units": 8875,
+            "max_points_units": 10000,
+            "completed_game_count": 4,
+            "required_game_count": 4,
+            "completed": true,
+            "overall_rank": 1,
+            "games": [
+              {
+                "game_instance_id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+                "game_type": "hidden_rule",
+                "state": "completed_correct",
+                "awarded_points_units": 2500,
+                "max_points_units": 2500,
+                "elapsed_ms": 40000,
+                "answer_mode": "typed",
+                "accuracy_bps": 10000,
+                "score_percentage_bps": 10000,
+                "attempt_id": "f32924fd-7235-5963-a4a8-ee8f07e5d786"
+              },
+              {
+                "game_instance_id": "26d33cf0-6a07-5718-83ab-687d6e614bc1",
+                "game_type": "riddle",
+                "state": "completed_correct",
+                "awarded_points_units": 1875,
+                "max_points_units": 2500,
+                "elapsed_ms": 20000,
+                "answer_mode": "assisted_mcq",
+                "accuracy_bps": 10000,
+                "score_percentage_bps": 7500,
+                "attempt_id": "6fe689dc-ebfa-5ea8-8d33-2fef6768d5bc"
+              },
+              {
+                "game_instance_id": "bf4be0a6-7716-5800-ac91-35a2c8e19482",
+                "game_type": "trivia",
+                "state": "completed_incorrect",
+                "awarded_points_units": 2000,
+                "max_points_units": 2500,
+                "elapsed_ms": 60000,
+                "answer_mode": "native_mcq",
+                "accuracy_bps": 8000,
+                "score_percentage_bps": 8000,
+                "attempt_id": "6c4b6aa5-7ec6-5aef-b85c-850dc5db32d8"
+              },
+              {
+                "game_instance_id": "8717aeb4-d718-5d87-a6f3-468d0978cbbd",
+                "game_type": "world_guess",
+                "state": "completed_correct",
+                "awarded_points_units": 2500,
+                "max_points_units": 2500,
+                "elapsed_ms": 30000,
+                "answer_mode": "typed",
+                "accuracy_bps": 10000,
+                "score_percentage_bps": 10000,
+                "attempt_id": "3068b06e-2259-5799-803c-a557cfd0282f"
+              }
+            ],
+            "legacy_score_id": null
+          },
+          {
+            "date": "2026-08-01",
+            "product_version": "blipz-v1",
+            "challenge_id": null,
+            "scoring_version": "legacy_raw_35",
+            "total_points_units": 2950,
+            "max_points_units": 3500,
+            "completed_game_count": null,
+            "required_game_count": 3,
+            "completed": null,
+            "overall_rank": null,
+            "games": [],
+            "legacy_score_id": "7839ad05-5bed-5a51-8fee-95cd5294fce5"
+          }
+        ],
+        "next_cursor": null
+      }
+    },
+    {
+      "name": "completed_reveal_rejected",
+      "method": "POST",
+      "route": "/v2/game-instances/61f4b375-ea8f-575d-85fc-8751c4eea8ed/choices/reveal",
+      "request": {
+        "idempotency_key": "f82815b5-a190-5da1-82ff-653eaf33c8e0"
+      },
+      "status": 409,
+      "response": {
+        "error": {
+          "code": "attempt_completed",
+          "message": "This game is already complete. Open your review.",
+          "retryable": false,
+          "request_id": "f82815b5-a190-5da1-82ff-653eaf33c8e0"
+        }
+      }
+    }
+  ]
+}

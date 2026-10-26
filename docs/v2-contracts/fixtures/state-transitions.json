@@ -1,0 +1,15 @@
+{
+  "fixture_only": true,
+  "note": "Reference-contract examples only. These do not exercise real transactions or prove database concurrency.",
+  "scenarios": [
+    {"name":"typed full-credit", "actions":["start","typed_correct"], "state":"completed_correct", "points":2500, "errors":[]},
+    {"name":"assisted correct", "actions":["start","reveal","choice_correct"], "state":"completed_correct", "points":1875, "errors":[]},
+    {"name":"wrong typed locks game", "actions":["start","typed_wrong","reveal","choice_correct"], "state":"completed_incorrect", "points":0, "errors":["attempt_completed"]},
+    {"name":"reveal wins serialization", "actions":["start","reveal","typed_correct","choice_correct"], "state":"completed_correct", "points":1875, "errors":["answer_mode_mismatch"]},
+    {"name":"submit wins serialization", "actions":["start","typed_correct","reveal"], "state":"completed_correct", "points":2500, "errors":["attempt_completed"]},
+    {"name":"duplicates preserve original", "actions":["start","start","reveal","reveal","choice_correct","typed_wrong"], "state":"completed_correct", "points":1875, "errors":[]},
+    {"name":"must start before mutation", "actions":["reveal","typed_correct"], "state":"not_started", "points":null, "errors":["attempt_not_started","attempt_not_started"]},
+    {"name":"no choice before reveal", "actions":["start","choice_correct"], "state":"active", "points":null, "errors":["answer_mode_mismatch"]},
+    {"name":"expiry cannot score", "actions":["start","deadline","typed_correct"], "state":"expired", "points":null, "errors":["challenge_closed"]}
+  ]
+}

@@ -1,0 +1,813 @@
+{
+  "fixture_only": true,
+  "publication_eligible": false,
+  "note": "All identities, users, dates and lifecycle states are LOCAL EXAMPLES. No editorial approval or production publication is claimed. Published challenge below demonstrates only the wire shape.",
+  "challenge": {
+    "id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+    "date": "2099-12-29",
+    "product_version": "blipz-v2",
+    "contract_version": "v2.1",
+    "scoring_version": "v2-equal25-v1",
+    "ranking_version": "v2-rank-v1",
+    "lineup_revision": "33da6d4c-50c1-55d8-8dd7-75036bc5df73",
+    "status": "published",
+    "opens_at": "2099-12-29T00:00:00.000Z",
+    "closes_at": "2099-12-30T00:00:00.000Z",
+    "published_at": "2099-12-29T00:00:00.000Z",
+    "required_game_count": 4,
+    "max_points_units": 10000,
+    "is_fallback": false,
+    "fallback_source_id": null,
+    "games": [
+      {
+        "id": "61f4b375-ea8f-575d-85fc-8751c4eea8ed",
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "position": 1,
+        "game_type": "hidden_rule",
+        "variant": null,
+        "content_revision_id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+        "title": "Find the number rule",
+        "presentation_role": "hero",
+        "max_points_units": 2500,
+        "answer_policy": {
+          "mode": "typed_or_optional_choices",
+          "final_submissions": 1,
+          "choice_count": 4,
+          "assisted_cap_bps": 7500,
+          "hints_enabled": false
+        }
+      },
+      {
+        "id": "26d33cf0-6a07-5718-83ab-687d6e614bc1",
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "position": 2,
+        "game_type": "riddle",
+        "variant": null,
+        "content_revision_id": "3de38de4-6132-56ec-b4aa-6acc0f646afa",
+        "title": "Keys without locks",
+        "presentation_role": "compact",
+        "max_points_units": 2500,
+        "answer_policy": {
+          "mode": "typed_or_optional_choices",
+          "final_submissions": 1,
+          "choice_count": 4,
+          "assisted_cap_bps": 7500,
+          "hints_enabled": false
+        }
+      },
+      {
+        "id": "bf4be0a6-7716-5800-ac91-35a2c8e19482",
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "position": 3,
+        "game_type": "trivia",
+        "variant": null,
+        "content_revision_id": "7d95882c-7b68-56ee-b3db-acc291b50160",
+        "title": "Daily Trivia",
+        "presentation_role": "compact",
+        "max_points_units": 2500,
+        "answer_policy": {
+          "mode": "native_mcq_set",
+          "final_submissions": 1,
+          "choice_count": 4,
+          "assisted_cap_bps": 10000,
+          "hints_enabled": false
+        }
+      },
+      {
+        "id": "8717aeb4-d718-5d87-a6f3-468d0978cbbd",
+        "challenge_id": "6ad66339-4ef3-5de7-bc37-2c5523bab66c",
+        "position": 4,
+        "game_type": "world_guess",
+        "variant": "flag",
+        "content_revision_id": "27526483-1d9a-5bfb-baff-6fb3ff2f1bbe",
+        "title": "Name the country",
+        "presentation_role": "compact",
+        "max_points_units": 2500,
+        "answer_policy": {
+          "mode": "typed_or_optional_choices",
+          "final_submissions": 1,
+          "choice_count": 4,
+          "assisted_cap_bps": 7500,
+          "hints_enabled": false
+        }
+      }
+    ]
+  },
+  "revisions": [
+    {
+      "id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+      "game_type": "hidden_rule",
+      "variant": null,
+      "schema_version": 1,
+      "generator_version": "local-handwritten-fixture-v1",
+      "created_at": "2099-12-29T00:00:00.000Z",
+      "status": "validated",
+      "public_payload": {
+        "kind": "hidden_rule",
+        "title": "Find the number rule",
+        "domain": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "belongs": [
+          6,
+          12,
+          21,
+          30
+        ],
+        "does_not_belong": [
+          7,
+          14,
+          22,
+          31
+        ],
+        "answer_instruction": "Describe which numbers belong in one short phrase."
+      },
+      "private_solution": {
+        "kind": "hidden_rule",
+        "rule_spec": {
+          "family": "integer_divisible_by",
+          "divisor": 3
+        },
+        "canonical_answer": "Multiples of three",
+        "canonical_explanation": "A number belongs exactly when it is divisible by three with no remainder. All four positive examples divide evenly; none of the negative examples do.",
+        "answers": {
+          "normalization": {
+            "version": "answer-normalization-v1",
+            "unicode": "NFKC",
+            "casefold": true,
+            "collapse_whitespace": true,
+            "strip_terminal_punctuation": true
+          },
+          "accepted_aliases": [
+            "multiples of three",
+            "multiples of 3",
+            "divisible by three",
+            "divisible by 3",
+            "numbers divisible by 3",
+            "numbers that are multiples of three"
+          ],
+          "approved_patterns": []
+        },
+        "choices": [
+          {
+            "id": "A",
+            "text": "Even numbers",
+            "rule_spec": {
+              "family": "integer_divisible_by",
+              "divisor": 2
+            }
+          },
+          {
+            "id": "B",
+            "text": "Multiples of three",
+            "rule_spec": {
+              "family": "integer_divisible_by",
+              "divisor": 3
+            }
+          },
+          {
+            "id": "C",
+            "text": "Multiples of five",
+            "rule_spec": {
+              "family": "integer_divisible_by",
+              "divisor": 5
+            }
+          },
+          {
+            "id": "D",
+            "text": "Multiples of ten",
+            "rule_spec": {
+              "family": "integer_divisible_by",
+              "divisor": 10
+            }
+          }
+        ],
+        "correct_choice_id": "B"
+      },
+      "validation": {
+        "validator_version": "local-example-checks-v1",
+        "validated_at": "2099-12-29T00:00:00.000Z",
+        "checks": [
+          "schema",
+          "fixture-invariants"
+        ],
+        "human_approval": "not_reviewed",
+        "approved_by": null,
+        "approved_at": null,
+        "content_sha256": "00cb1c388d938c371c46cc47a79146e78d111eea0f983dd61dd3b82a7f7bcf98"
+      }
+    },
+    {
+      "id": "3de38de4-6132-56ec-b4aa-6acc0f646afa",
+      "game_type": "riddle",
+      "variant": null,
+      "schema_version": 1,
+      "generator_version": "local-handwritten-fixture-v1",
+      "created_at": "2099-12-29T00:00:00.000Z",
+      "status": "validated",
+      "public_payload": {
+        "kind": "riddle",
+        "title": "Keys without locks",
+        "riddle": "I have 88 black-and-white keys. Pressing them makes hammers strike strings. What am I?",
+        "answer_instruction": "Name the instrument."
+      },
+      "private_solution": {
+        "kind": "riddle",
+        "canonical_answer": "Piano",
+        "canonical_explanation": "A standard modern piano has 88 keys, with hammers that strike strings.",
+        "answers": {
+          "normalization": {
+            "version": "answer-normalization-v1",
+            "unicode": "NFKC",
+            "casefold": true,
+            "collapse_whitespace": true,
+            "strip_terminal_punctuation": true
+          },
+          "accepted_aliases": [
+            "piano",
+            "a piano",
+            "grand piano",
+            "upright piano"
+          ],
+          "approved_patterns": []
+        },
+        "choices": [
+          {
+            "id": "A",
+            "text": "Harp"
+          },
+          {
+            "id": "B",
+            "text": "Piano"
+          },
+          {
+            "id": "C",
+            "text": "Violin"
+          },
+          {
+            "id": "D",
+            "text": "Trumpet"
+          }
+        ],
+        "correct_choice_id": "B"
+      },
+      "validation": {
+        "validator_version": "local-example-checks-v1",
+        "validated_at": "2099-12-29T00:00:00.000Z",
+        "checks": [
+          "schema",
+          "fixture-invariants"
+        ],
+        "human_approval": "not_reviewed",
+        "approved_by": null,
+        "approved_at": null,
+        "content_sha256": "58aa04c2925691ed01a88a76b156112484b9ac286f08aa952849d3a4e8b6d8db"
+      }
+    },
+    {
+      "id": "7d95882c-7b68-56ee-b3db-acc291b50160",
+      "game_type": "trivia",
+      "variant": null,
+      "schema_version": 1,
+      "generator_version": "local-handwritten-fixture-v1",
+      "created_at": "2099-12-29T00:00:00.000Z",
+      "status": "validated",
+      "public_payload": {
+        "kind": "trivia",
+        "title": "Daily Trivia",
+        "questions": [
+          {
+            "id": "q0",
+            "question": "Which planet is known as the Red Planet?",
+            "category": "Space",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Venus"
+              },
+              {
+                "id": "B",
+                "text": "Mars"
+              },
+              {
+                "id": "C",
+                "text": "Jupiter"
+              },
+              {
+                "id": "D",
+                "text": "Mercury"
+              }
+            ]
+          },
+          {
+            "id": "q1",
+            "question": "Which ocean is the largest by surface area?",
+            "category": "Geography",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Atlantic"
+              },
+              {
+                "id": "B",
+                "text": "Indian"
+              },
+              {
+                "id": "C",
+                "text": "Pacific"
+              },
+              {
+                "id": "D",
+                "text": "Arctic"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "How many sides does a hexagon have?",
+            "category": "Geometry",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Five"
+              },
+              {
+                "id": "B",
+                "text": "Six"
+              },
+              {
+                "id": "C",
+                "text": "Seven"
+              },
+              {
+                "id": "D",
+                "text": "Eight"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "Which chemical element has the symbol O?",
+            "category": "Science",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Gold"
+              },
+              {
+                "id": "B",
+                "text": "Oxygen"
+              },
+              {
+                "id": "C",
+                "text": "Osmium"
+              },
+              {
+                "id": "D",
+                "text": "Silver"
+              }
+            ]
+          },
+          {
+            "id": "q4",
+            "question": "Who wrote Pride and Prejudice?",
+            "category": "Literature",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Charlotte Brontë"
+              },
+              {
+                "id": "B",
+                "text": "Mary Shelley"
+              },
+              {
+                "id": "C",
+                "text": "Virginia Woolf"
+              },
+              {
+                "id": "D",
+                "text": "Jane Austen"
+              }
+            ]
+          }
+        ]
+      },
+      "private_solution": {
+        "kind": "trivia",
+        "questions": [
+          {
+            "question_id": "q0",
+            "correct_choice_id": "B",
+            "explanation": "Mars is commonly called the Red Planet.",
+            "source_note": "Local illustrative common-knowledge fixture; editorial source verification required before any real publication."
+          },
+          {
+            "question_id": "q1",
+            "correct_choice_id": "C",
+            "explanation": "The Pacific is the largest ocean by surface area.",
+            "source_note": "Local illustrative common-knowledge fixture; editorial source verification required before any real publication."
+          },
+          {
+            "question_id": "q2",
+            "correct_choice_id": "B",
+            "explanation": "A hexagon has six sides.",
+            "source_note": "Local illustrative common-knowledge fixture; editorial source verification required before any real publication."
+          },
+          {
+            "question_id": "q3",
+            "correct_choice_id": "B",
+            "explanation": "O is the chemical symbol for oxygen.",
+            "source_note": "Local illustrative common-knowledge fixture; editorial source verification required before any real publication."
+          },
+          {
+            "question_id": "q4",
+            "correct_choice_id": "D",
+            "explanation": "Jane Austen wrote Pride and Prejudice.",
+            "source_note": "Local illustrative common-knowledge fixture; editorial source verification required before any real publication."
+          }
+        ]
+      },
+      "validation": {
+        "validator_version": "local-example-checks-v1",
+        "validated_at": "2099-12-29T00:00:00.000Z",
+        "checks": [
+          "schema",
+          "fixture-invariants"
+        ],
+        "human_approval": "not_reviewed",
+        "approved_by": null,
+        "approved_at": null,
+        "content_sha256": "412323e02094b66753e66c2b119af870ea08b67ab7526d4af3e620bd8d9425c2"
+      }
+    },
+    {
+      "id": "27526483-1d9a-5bfb-baff-6fb3ff2f1bbe",
+      "game_type": "world_guess",
+      "variant": "flag",
+      "schema_version": 1,
+      "generator_version": "local-handwritten-fixture-v1",
+      "created_at": "2099-12-29T00:00:00.000Z",
+      "status": "validated",
+      "public_payload": {
+        "kind": "world_guess",
+        "variant": "flag",
+        "title": "Name the country",
+        "asset": {
+          "asset_id": "f35afeb7-79d7-50f6-b799-80406eed26c9",
+          "uri": "local-fixture://assets/visual-a.svg",
+          "media_type": "image/svg+xml",
+          "sha256": "711f56e24b0f850f201709c25d17501b40faa873444da28897eede741f3d5c63",
+          "license": "CC0-1.0",
+          "attribution": null,
+          "alt_text": "Country flag shown as the puzzle clue."
+        },
+        "answer_instruction": "Which country does this flag represent?"
+      },
+      "private_solution": {
+        "kind": "world_guess",
+        "entity_id": "JP",
+        "dataset_version": "iso-alpha2-fixture-v1",
+        "canonical_answer": "Japan",
+        "canonical_explanation": "The flag depicts a red disc on a white field.",
+        "answers": {
+          "normalization": {
+            "version": "answer-normalization-v1",
+            "unicode": "NFKC",
+            "casefold": true,
+            "collapse_whitespace": true,
+            "strip_terminal_punctuation": true
+          },
+          "accepted_aliases": [
+            "japan",
+            "nippon",
+            "nihon"
+          ],
+          "approved_patterns": []
+        },
+        "choices": [
+          {
+            "id": "A",
+            "text": "Bangladesh"
+          },
+          {
+            "id": "B",
+            "text": "Japan"
+          },
+          {
+            "id": "C",
+            "text": "Palau"
+          },
+          {
+            "id": "D",
+            "text": "Indonesia"
+          }
+        ],
+        "correct_choice_id": "B",
+        "source_note": "Local fixture only; country identity is JP."
+      },
+      "validation": {
+        "validator_version": "local-example-checks-v1",
+        "validated_at": "2099-12-29T00:00:00.000Z",
+        "checks": [
+          "schema",
+          "fixture-invariants"
+        ],
+        "human_approval": "not_reviewed",
+        "approved_by": null,
+        "approved_at": null,
+        "content_sha256": "5dd3c526f6de0ba89b14109bc935b58171ff9a7b90b3a844f758f159ea2b96d9"
+      }
+    },
+    {
+      "id": "8dd3778c-88df-54dc-bb43-1e37fddc7d11",
+      "game_type": "world_guess",
+      "variant": "outline",
+      "schema_version": 1,
+      "generator_version": "local-handwritten-fixture-v1",
+      "created_at": "2099-12-29T00:00:00.000Z",
+      "status": "validated",
+      "public_payload": {
+        "kind": "world_guess",
+        "variant": "outline",
+        "title": "Name the country",
+        "asset": {
+          "asset_id": "209c5da0-1102-5a36-a61b-fb504898d493",
+          "uri": "local-fixture://assets/visual-b.svg",
+          "media_type": "image/svg+xml",
+          "sha256": "f0e42e0d303f1549283d3969491a1d8b6f121676bb87735d2f9faf573f976ba1",
+          "license": "Natural Earth public domain",
+          "attribution": null,
+          "alt_text": "Country outline shown as the puzzle clue."
+        },
+        "answer_instruction": "Which country has this outline?"
+      },
+      "private_solution": {
+        "kind": "world_guess",
+        "entity_id": "PT",
+        "dataset_version": "natural-earth-110m-local-snapshot",
+        "canonical_answer": "Portugal",
+        "canonical_explanation": "The outline shows mainland Portugal, on the western side of the Iberian Peninsula. Islands are omitted at this fixture scale.",
+        "answers": {
+          "normalization": {
+            "version": "answer-normalization-v1",
+            "unicode": "NFKC",
+            "casefold": true,
+            "collapse_whitespace": true,
+            "strip_terminal_punctuation": true
+          },
+          "accepted_aliases": [
+            "portugal",
+            "portuguese republic"
+          ],
+          "approved_patterns": []
+        },
+        "choices": [
+          {
+            "id": "A",
+            "text": "Portugal"
+          },
+          {
+            "id": "B",
+            "text": "Chile"
+          },
+          {
+            "id": "C",
+            "text": "Italy"
+          },
+          {
+            "id": "D",
+            "text": "Greece"
+          }
+        ],
+        "correct_choice_id": "A",
+        "source_note": "Mainland geometry derived from Natural Earth 110m; this asset is an illustrative local fixture, not production-approved."
+      },
+      "validation": {
+        "validator_version": "local-example-checks-v1",
+        "validated_at": "2099-12-29T00:00:00.000Z",
+        "checks": [
+          "schema",
+          "fixture-invariants"
+        ],
+        "human_approval": "not_reviewed",
+        "approved_by": null,
+        "approved_at": null,
+        "content_sha256": "e4eff7810d81ad4f72d41bf8d7188de8d2e268b8c02ac9fe49b048a0ac69d448"
+      }
+    }
+  ],
+  "public_content_views": [
+    {
+      "id": "8bba0dd7-bd1f-5d58-ab19-be2ca6a14b7e",
+      "game_type": "hidden_rule",
+      "variant": null,
+      "schema_version": 1,
+      "public_payload": {
+        "kind": "hidden_rule",
+        "title": "Find the number rule",
+        "domain": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 99
+        },
+        "belongs": [
+          6,
+          12,
+          21,
+          30
+        ],
+        "does_not_belong": [
+          7,
+          14,
+          22,
+          31
+        ],
+        "answer_instruction": "Describe which numbers belong in one short phrase."
+      }
+    },
+    {
+      "id": "3de38de4-6132-56ec-b4aa-6acc0f646afa",
+      "game_type": "riddle",
+      "variant": null,
+      "schema_version": 1,
+      "public_payload": {
+        "kind": "riddle",
+        "title": "Keys without locks",
+        "riddle": "I have 88 black-and-white keys. Pressing them makes hammers strike strings. What am I?",
+        "answer_instruction": "Name the instrument."
+      }
+    },
+    {
+      "id": "7d95882c-7b68-56ee-b3db-acc291b50160",
+      "game_type": "trivia",
+      "variant": null,
+      "schema_version": 1,
+      "public_payload": {
+        "kind": "trivia",
+        "title": "Daily Trivia",
+        "questions": [
+          {
+            "id": "q0",
+            "question": "Which planet is known as the Red Planet?",
+            "category": "Space",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Venus"
+              },
+              {
+                "id": "B",
+                "text": "Mars"
+              },
+              {
+                "id": "C",
+                "text": "Jupiter"
+              },
+              {
+                "id": "D",
+                "text": "Mercury"
+              }
+            ]
+          },
+          {
+            "id": "q1",
+            "question": "Which ocean is the largest by surface area?",
+            "category": "Geography",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Atlantic"
+              },
+              {
+                "id": "B",
+                "text": "Indian"
+              },
+              {
+                "id": "C",
+                "text": "Pacific"
+              },
+              {
+                "id": "D",
+                "text": "Arctic"
+              }
+            ]
+          },
+          {
+            "id": "q2",
+            "question": "How many sides does a hexagon have?",
+            "category": "Geometry",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Five"
+              },
+              {
+                "id": "B",
+                "text": "Six"
+              },
+              {
+                "id": "C",
+                "text": "Seven"
+              },
+              {
+                "id": "D",
+                "text": "Eight"
+              }
+            ]
+          },
+          {
+            "id": "q3",
+            "question": "Which chemical element has the symbol O?",
+            "category": "Science",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Gold"
+              },
+              {
+                "id": "B",
+                "text": "Oxygen"
+              },
+              {
+                "id": "C",
+                "text": "Osmium"
+              },
+              {
+                "id": "D",
+                "text": "Silver"
+              }
+            ]
+          },
+          {
+            "id": "q4",
+            "question": "Who wrote Pride and Prejudice?",
+            "category": "Literature",
+            "choices": [
+              {
+                "id": "A",
+                "text": "Charlotte Brontë"
+              },
+              {
+                "id": "B",
+                "text": "Mary Shelley"
+              },
+              {
+                "id": "C",
+                "text": "Virginia Woolf"
+              },
+              {
+                "id": "D",
+                "text": "Jane Austen"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "27526483-1d9a-5bfb-baff-6fb3ff2f1bbe",
+      "game_type": "world_guess",
+      "variant": "flag",
+      "schema_version": 1,
+      "public_payload": {
+        "kind": "world_guess",
+        "variant": "flag",
+        "title": "Name the country",
+        "asset": {
+          "asset_id": "f35afeb7-79d7-50f6-b799-80406eed26c9",
+          "uri": "local-fixture://assets/visual-a.svg",
+          "media_type": "image/svg+xml",
+          "sha256": "711f56e24b0f850f201709c25d17501b40faa873444da28897eede741f3d5c63",
+          "license": "CC0-1.0",
+          "attribution": null,
+          "alt_text": "Country flag shown as the puzzle clue."
+        },
+        "answer_instruction": "Which country does this flag represent?"
+      }
+    },
+    {
+      "id": "8dd3778c-88df-54dc-bb43-1e37fddc7d11",
+      "game_type": "world_guess",
+      "variant": "outline",
+      "schema_version": 1,
+      "public_payload": {
+        "kind": "world_guess",
+        "variant": "outline",
+        "title": "Name the country",
+        "asset": {
+          "asset_id": "209c5da0-1102-5a36-a61b-fb504898d493",
+          "uri": "local-fixture://assets/visual-b.svg",
+          "media_type": "image/svg+xml",
+          "sha256": "f0e42e0d303f1549283d3969491a1d8b6f121676bb87735d2f9faf573f976ba1",
+          "license": "Natural Earth public domain",
+          "attribution": null,
+          "alt_text": "Country outline shown as the puzzle clue."
+        },
+        "answer_instruction": "Which country has this outline?"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:blipz:local:v2-contract-proposal:1",
+  "title": "Blipz V2 proposal; NOT production schema",
+  "$defs": {
+    "Choice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id",
+        "text"
+      ],
+      "additionalProperties": false
+    },
+    "RuleChoice": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule_spec": {
+          "$ref": "#/$defs/RuleSpec"
+        }
+      },
+      "required": [
+        "id",
+        "text",
+        "rule_spec"
+      ],
+      "additionalProperties": false
+    },
+    "RuleSpec": {
+      "type": "object",
+      "properties": {
+        "family": {
+          "enum": [
+            "integer_divisible_by"
+          ]
+        },
+        "divisor": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 99
+        }
+      },
+      "required": [
+        "family",
+        "divisor"
+      ],
+      "additionalProperties": false
+    },
+    "NormalizationPolicy": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "answer-normalization-v1"
+        },
+        "unicode": {
+          "const": "NFKC"
+        },
+        "casefold": {
+          "const": true
+        },
+        "collapse_whitespace": {
+          "const": true
+        },
+        "strip_terminal_punctuation": {
+          "const": true
+        }
+      },
+      "required": [
+        "version",
+        "unicode",
+        "casefold",
+        "collapse_whitespace",
+        "strip_terminal_punctuation"
+      ],
+      "additionalProperties": false
+    },
+    "AnswerAliases": {
+      "type": "object",
+      "properties": {
+        "normalization": {
+          "$ref": "#/$defs/NormalizationPolicy"
+        },
+        "accepted_aliases": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        },
+        "approved_patterns": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "normalization",
+        "accepted_aliases",
+        "approved_patterns"
+      ],
+      "additionalProperties": false
+    },
+    "AssetReference": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "media_type": {
+          "enum": [
+            "image/svg+xml",
+            "image/png",
+            "image/jpeg"
+          ]
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "license": {
+          "type": "string",
+          "minLength": 1
+        },
+        "attribution": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "alt_text": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "asset_id",
+        "uri",
+        "media_type",
+        "sha256",
+        "license",
+        "attribution",
+        "alt_text"
+      ],
+      "additionalProperties": false
+    },
+    "HiddenRulePublicPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "hidden_rule"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "domain": {
+          "type": "object",
+          "properties": {
+            "type": {
+              "const": "integer"
+            },
+            "minimum": {
+              "type": "integer"
+            },
+            "maximum": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "type",
+            "minimum",
+            "maximum"
+          ],
+          "additionalProperties": false
+        },
+        "belongs": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 3
+        },
+        "does_not_belong": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "minItems": 3
+        },
+        "answer_instruction": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "domain",
+        "belongs",
+        "does_not_belong",
+        "answer_instruction"
+      ],
+      "additionalProperties": false
+    },
+    "HiddenRulePrivateSolution": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "hidden_rule"
+        },
+        "rule_spec": {
+          "$ref": "#/$defs/RuleSpec"
+        },
+        "canonical_answer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answers": {
+          "$ref": "#/$defs/AnswerAliases"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/RuleChoice"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "correct_choice_id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "rule_spec",
+        "canonical_answer",
+        "canonical_explanation",
+        "answers",
+        "choices",
+        "correct_choice_id"
+      ],
+      "additionalProperties": false
+    },
+    "RiddlePublicPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "riddle"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "riddle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answer_instruction": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "riddle",
+        "answer_instruction"
+      ],
+      "additionalProperties": false
+    },
+    "RiddlePrivateSolution": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "riddle"
+        },
+        "canonical_answer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answers": {
+          "$ref": "#/$defs/AnswerAliases"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "correct_choice_id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "canonical_answer",
+        "canonical_explanation",
+        "answers",
+        "choices",
+        "correct_choice_id"
+      ],
+      "additionalProperties": false
+    },
+    "TriviaQuestion": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "id",
+        "question",
+        "category",
+        "choices"
+      ],
+      "additionalProperties": false
+    },
+    "TriviaPublicPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "trivia"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriviaQuestion"
+          },
+          "minItems": 5,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    "TriviaQuestionSolution": {
+      "type": "object",
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "correct_choice_id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "question_id",
+        "correct_choice_id",
+        "explanation",
+        "source_note"
+      ],
+      "additionalProperties": false
+    },
+    "TriviaPrivateSolution": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "trivia"
+        },
+        "questions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/TriviaQuestionSolution"
+          },
+          "minItems": 5,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "kind",
+        "questions"
+      ],
+      "additionalProperties": false
+    },
+    "WorldGuessPublicPayload": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "world_guess"
+        },
+        "variant": {
+          "enum": [
+            "flag",
+            "outline"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "asset": {
+          "$ref": "#/$defs/AssetReference"
+        },
+        "answer_instruction": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "variant",
+        "title",
+        "asset",
+        "answer_instruction"
+      ],
+      "additionalProperties": false
+    },
+    "WorldGuessPrivateSolution": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "world_guess"
+        },
+        "entity_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "dataset_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_answer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "canonical_explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answers": {
+          "$ref": "#/$defs/AnswerAliases"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "correct_choice_id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        },
+        "source_note": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "entity_id",
+        "dataset_version",
+        "canonical_answer",
+        "canonical_explanation",
+        "answers",
+        "choices",
+        "correct_choice_id",
+        "source_note"
+      ],
+      "additionalProperties": false
+    },
+    "PublicPayload": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HiddenRulePublicPayload"
+        },
+        {
+          "$ref": "#/$defs/RiddlePublicPayload"
+        },
+        {
+          "$ref": "#/$defs/TriviaPublicPayload"
+        },
+        {
+          "$ref": "#/$defs/WorldGuessPublicPayload"
+        }
+      ]
+    },
+    "PrivateSolution": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/HiddenRulePrivateSolution"
+        },
+        {
+          "$ref": "#/$defs/RiddlePrivateSolution"
+        },
+        {
+          "$ref": "#/$defs/TriviaPrivateSolution"
+        },
+        {
+          "$ref": "#/$defs/WorldGuessPrivateSolution"
+        }
+      ]
+    },
+    "ValidationMetadata": {
+      "type": "object",
+      "properties": {
+        "validator_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validated_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 0
+        },
+        "human_approval": {
+          "enum": [
+            "not_reviewed",
+            "approved",
+            "rejected"
+          ]
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "required": [
+        "validator_version",
+        "validated_at",
+        "checks",
+        "human_approval",
+        "approved_by",
+        "approved_at",
+        "content_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "GameContentRevision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "generator_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "validated",
+            "approved",
+            "retired"
+          ]
+        },
+        "public_payload": {
+          "$ref": "#/$defs/PublicPayload"
+        },
+        "private_solution": {
+          "$ref": "#/$defs/PrivateSolution"
+        },
+        "validation": {
+          "$ref": "#/$defs/ValidationMetadata"
+        }
+      },
+      "required": [
+        "id",
+        "game_type",
+        "variant",
+        "schema_version",
+        "generator_version",
+        "created_at",
+        "status",
+        "public_payload",
+        "private_solution",
+        "validation"
+      ],
+      "additionalProperties": false
+    },
+    "PublicGameContentRevision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "schema_version": {
+          "const": 1
+        },
+        "public_payload": {
+          "$ref": "#/$defs/PublicPayload"
+        }
+      },
+      "required": [
+        "id",
+        "game_type",
+        "variant",
+        "schema_version",
+        "public_payload"
+      ],
+      "additionalProperties": false
+    },
+    "AnswerPolicy": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "typed_or_optional_choices",
+            "native_mcq_set"
+          ]
+        },
+        "final_submissions": {
+          "const": 1
+        },
+        "choice_count": {
+          "const": 4
+        },
+        "assisted_cap_bps": {
+          "enum": [
+            7500,
+            10000
+          ]
+        },
+        "hints_enabled": {
+          "const": false
+        }
+      },
+      "required": [
+        "mode",
+        "final_submissions",
+        "choice_count",
+        "assisted_cap_bps",
+        "hints_enabled"
+      ],
+      "additionalProperties": false
+    },
+    "DailyGameInstance": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "position": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "variant": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "content_revision_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "presentation_role": {
+          "enum": [
+            "hero",
+            "compact"
+          ]
+        },
+        "max_points_units": {
+          "const": 2500
+        },
+        "answer_policy": {
+          "$ref": "#/$defs/AnswerPolicy"
+        }
+      },
+      "required": [
+        "id",
+        "challenge_id",
+        "position",
+        "game_type",
+        "variant",
+        "content_revision_id",
+        "title",
+        "presentation_role",
+        "max_points_units",
+        "answer_policy"
+      ],
+      "additionalProperties": false
+    },
+    "DailyChallenge": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "product_version": {
+          "const": "blipz-v2"
+        },
+        "contract_version": {
+          "const": "v2.1"
+        },
+        "scoring_version": {
+          "const": "v2-equal25-v1"
+        },
+        "ranking_version": {
+          "const": "v2-rank-v1"
+        },
+        "lineup_revision": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "status": {
+          "const": "published"
+        },
+        "opens_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "closes_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "published_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "required_game_count": {
+          "const": 4
+        },
+        "max_points_units": {
+          "const": 10000
+        },
+        "is_fallback": {
+          "type": "boolean"
+        },
+        "fallback_source_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DailyGameInstance"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "id",
+        "date",
+        "product_version",
+        "contract_version",
+        "scoring_version",
+        "ranking_version",
+        "lineup_revision",
+        "status",
+        "opens_at",
+        "closes_at",
+        "published_at",
+        "required_game_count",
+        "max_points_units",
+        "is_fallback",
+        "fallback_source_id",
+        "games"
+      ],
+      "additionalProperties": false
+    },
+    "TriviaSelection": {
+      "type": "object",
+      "properties": {
+        "question_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "selected_option_id": {
+          "enum": [
+            "A",
+            "B",
+            "C",
+            "D"
+          ]
+        }
+      },
+      "required": [
+        "question_id",
+        "selected_option_id"
+      ],
+      "additionalProperties": false
+    },
+    "FinalAnswer": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "typed"
+            },
+            "text": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 300
+            }
+          },
+          "required": [
+            "kind",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "choice"
+            },
+            "selected_option_id": {
+              "enum": [
+                "A",
+                "B",
+                "C",
+                "D"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "selected_option_id"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "trivia"
+            },
+            "answers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TriviaSelection"
+              },
+              "minItems": 5,
+              "maxItems": 5
+            }
+          },
+          "required": [
+            "kind",
+            "answers"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DailyGameAttempt": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content_revision_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "challenge_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "state": {
+          "enum": [
+            "active",
+            "choices_revealed",
+            "completed_correct",
+            "completed_incorrect",
+            "expired"
+          ]
+        },
+        "started_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "choices_revealed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "clock_source": {
+          "const": "database_wall_clock"
+        },
+        "timing_version": {
+          "const": "wall-clock-v1"
+        },
+        "choices_revealed": {
+          "type": "boolean"
+        },
+        "answer_mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "typed",
+                "assisted_mcq",
+                "native_mcq"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "final_answer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FinalAnswer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "correct_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "question_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "is_correct": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "accuracy_bps": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max_points_units": {
+          "const": 2500
+        },
+        "available_points_units": {
+          "enum": [
+            2500,
+            1875
+          ]
+        },
+        "awarded_points_units": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2500
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "score_percentage_bps": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scoring_version": {
+          "const": "v2-equal25-v1"
+        },
+        "grading_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "completion_idempotency_key": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "challenge_id",
+        "game_instance_id",
+        "content_revision_id",
+        "game_type",
+        "challenge_date",
+        "state",
+        "started_at",
+        "choices_revealed_at",
+        "completed_at",
+        "elapsed_ms",
+        "clock_source",
+        "timing_version",
+        "choices_revealed",
+        "answer_mode",
+        "final_answer",
+        "correct_count",
+        "question_count",
+        "is_correct",
+        "accuracy_bps",
+        "max_points_units",
+        "available_points_units",
+        "awarded_points_units",
+        "score_percentage_bps",
+        "scoring_version",
+        "grading_version",
+        "completion_idempotency_key"
+      ],
+      "additionalProperties": false
+    },
+    "GameResult": {
+      "type": "object",
+      "properties": {
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "state": {
+          "enum": [
+            "completed_correct",
+            "completed_incorrect"
+          ]
+        },
+        "awarded_points_units": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_points_units": {
+          "const": 2500
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "answer_mode": {
+          "enum": [
+            "typed",
+            "assisted_mcq",
+            "native_mcq"
+          ]
+        },
+        "accuracy_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "score_percentage_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "game_instance_id",
+        "attempt_id",
+        "game_type",
+        "state",
+        "awarded_points_units",
+        "max_points_units",
+        "elapsed_ms",
+        "answer_mode",
+        "accuracy_bps",
+        "score_percentage_bps"
+      ],
+      "additionalProperties": false
+    },
+    "DailyResult": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "product_version": {
+          "const": "blipz-v2"
+        },
+        "scoring_version": {
+          "const": "v2-equal25-v1"
+        },
+        "state": {
+          "enum": [
+            "in_progress",
+            "completed"
+          ]
+        },
+        "completed_game_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "required_game_count": {
+          "const": 4
+        },
+        "total_points_units": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "max_points_units": {
+          "const": 10000
+        },
+        "total_elapsed_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overall_eligible": {
+          "type": "boolean"
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GameResult"
+          },
+          "minItems": 0,
+          "maxItems": 4
+        }
+      },
+      "required": [
+        "id",
+        "user_id",
+        "challenge_id",
+        "date",
+        "product_version",
+        "scoring_version",
+        "state",
+        "completed_game_count",
+        "required_game_count",
+        "total_points_units",
+        "max_points_units",
+        "total_elapsed_ms",
+        "completed_at",
+        "overall_eligible",
+        "games"
+      ],
+      "additionalProperties": false
+    },
+    "DailyActivity": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "first_completed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "source_product": {
+          "enum": [
+            "blipz-v1",
+            "blipz-v2"
+          ]
+        },
+        "source_attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "legacy_score_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "streak_rule_version": {
+          "const": "first-completion-utc-v1"
+        },
+        "streak_after": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "longest_streak_after": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "user_id",
+        "date",
+        "first_completed_at",
+        "source_product",
+        "source_attempt_id",
+        "legacy_score_id",
+        "streak_rule_version",
+        "streak_after",
+        "longest_streak_after"
+      ],
+      "additionalProperties": false
+    },
+    "ReviewItem": {
+      "type": "object",
+      "properties": {
+        "question_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "submitted_answer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "correct_answer": {
+          "type": "string",
+          "minLength": 1
+        },
+        "is_correct": {
+          "type": "boolean"
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "question_id",
+        "submitted_answer",
+        "correct_answer",
+        "is_correct",
+        "explanation"
+      ],
+      "additionalProperties": false
+    },
+    "CompletedGameReview": {
+      "type": "object",
+      "properties": {
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content_revision_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "result": {
+          "$ref": "#/$defs/GameResult"
+        },
+        "public_payload": {
+          "$ref": "#/$defs/PublicPayload"
+        },
+        "canonical_answer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "explanation": {
+          "type": "string",
+          "minLength": 1
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ReviewItem"
+          },
+          "minItems": 0
+        }
+      },
+      "required": [
+        "challenge_id",
+        "game_instance_id",
+        "content_revision_id",
+        "attempt_id",
+        "date",
+        "game_type",
+        "result",
+        "public_payload",
+        "canonical_answer",
+        "explanation",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "Player": {
+      "type": "object",
+      "properties": {
+        "player_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "player_id",
+        "username"
+      ],
+      "additionalProperties": false
+    },
+    "OverallLeaderboardRow": {
+      "type": "object",
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "performance_rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "player": {
+          "$ref": "#/$defs/Player"
+        },
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "total_points_units": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_points_units": {
+          "const": 10000
+        },
+        "total_elapsed_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
+      },
+      "required": [
+        "rank",
+        "performance_rank",
+        "player",
+        "challenge_id",
+        "total_points_units",
+        "max_points_units",
+        "total_elapsed_ms",
+        "completed_at"
+      ],
+      "additionalProperties": false
+    },
+    "GameLeaderboardRow": {
+      "type": "object",
+      "properties": {
+        "rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "performance_rank": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "player": {
+          "$ref": "#/$defs/Player"
+        },
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_type": {
+          "enum": [
+            "hidden_rule",
+            "riddle",
+            "trivia",
+            "world_guess"
+          ]
+        },
+        "awarded_points_units": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_points_units": {
+          "const": 2500
+        },
+        "score_percentage_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "accuracy_bps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "correct_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "question_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "choices_revealed": {
+          "type": "boolean"
+        },
+        "answer_mode": {
+          "enum": [
+            "typed",
+            "assisted_mcq",
+            "native_mcq"
+          ]
+        },
+        "elapsed_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "completed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        }
+      },
+      "required": [
+        "rank",
+        "performance_rank",
+        "player",
+        "challenge_id",
+        "game_instance_id",
+        "game_type",
+        "awarded_points_units",
+        "max_points_units",
+        "score_percentage_bps",
+        "accuracy_bps",
+        "correct_count",
+        "question_count",
+        "choices_revealed",
+        "answer_mode",
+        "elapsed_ms",
+        "completed_at"
+      ],
+      "additionalProperties": false
+    },
+    "GameRankStatSummary": {
+      "type": "object",
+      "properties": {
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "player_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "ranking_version": {
+          "const": "v2-rank-v1"
+        },
+        "eligible": {
+          "type": "boolean"
+        },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "performance_rank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "eligible_population": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "strictly_better_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tied_performance_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "percentile_bps": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 10000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "top_percent_display": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "minimum_population": {
+          "const": 100
+        },
+        "percentile_suppression_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "not_completed",
+                "population_below_100"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "challenge_id",
+        "game_instance_id",
+        "player_id",
+        "as_of",
+        "ranking_version",
+        "eligible",
+        "rank",
+        "performance_rank",
+        "eligible_population",
+        "strictly_better_count",
+        "tied_performance_count",
+        "percentile_bps",
+        "top_percent_display",
+        "minimum_population",
+        "percentile_suppression_reason"
+      ],
+      "additionalProperties": false
+    },
+    "HistoryRow": {
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "product_version": {
+          "enum": [
+            "blipz-v1",
+            "blipz-v2"
+          ]
+        },
+        "challenge_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scoring_version": {
+          "enum": [
+            "legacy_raw_35",
+            "normalized_100",
+            "v2-equal25-v1"
+          ]
+        },
+        "total_points_units": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max_points_units": {
+          "enum": [
+            3500,
+            10000
+          ]
+        },
+        "completed_game_count": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "required_game_count": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "completed": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "overall_rank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GameResult"
+          },
+          "minItems": 0
+        },
+        "legacy_score_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "date",
+        "product_version",
+        "challenge_id",
+        "scoring_version",
+        "total_points_units",
+        "max_points_units",
+        "completed_game_count",
+        "required_game_count",
+        "completed",
+        "overall_rank",
+        "games",
+        "legacy_score_id"
+      ],
+      "additionalProperties": false
+    },
+    "ProgressSlot": {
+      "type": "object",
+      "properties": {
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "not_started",
+            "active",
+            "choices_revealed",
+            "completed_correct",
+            "completed_incorrect",
+            "expired"
+          ]
+        },
+        "attempt_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "choices_revealed": {
+          "type": "boolean"
+        },
+        "available_points_units": {
+          "enum": [
+            2500,
+            1875
+          ]
+        },
+        "result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GameResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "game_instance_id",
+        "state",
+        "attempt_id",
+        "started_at",
+        "choices_revealed",
+        "available_points_units",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    "DailyProgress": {
+      "type": "object",
+      "properties": {
+        "challenge_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "date": {
+          "type": "string",
+          "format": "date"
+        },
+        "as_of": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProgressSlot"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "daily_result": {
+          "$ref": "#/$defs/DailyResult"
+        },
+        "activity_recorded": {
+          "type": "boolean"
+        },
+        "current_streak": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "longest_streak": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "challenge_id",
+        "date",
+        "as_of",
+        "games",
+        "daily_result",
+        "activity_recorded",
+        "current_streak",
+        "longest_streak"
+      ],
+      "additionalProperties": false
+    },
+    "StartAttemptResponse": {
+      "type": "object",
+      "properties": {
+        "attempt": {
+          "$ref": "#/$defs/DailyGameAttempt"
+        },
+        "content": {
+          "$ref": "#/$defs/PublicGameContentRevision"
+        },
+        "server_time": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "closes_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "already_started": {
+          "type": "boolean"
+        },
+        "already_completed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attempt",
+        "content",
+        "server_time",
+        "closes_at",
+        "already_started",
+        "already_completed"
+      ],
+      "additionalProperties": false
+    },
+    "RevealChoicesResponse": {
+      "type": "object",
+      "properties": {
+        "attempt_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "game_instance_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "choices": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "choices_revealed_at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "Z$"
+        },
+        "available_points_units": {
+          "const": 1875
+        },
+        "already_revealed": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "attempt_id",
+        "game_instance_id",
+        "choices",
+        "choices_revealed_at",
+        "available_points_units",
+        "already_revealed"
+      ],
+      "additionalProperties": false
+    },
+    "SubmitResponse": {
+      "type": "object",
+      "properties": {
+        "attempt": {
+          "$ref": "#/$defs/DailyGameAttempt"
+        },
+        "daily_result": {
+          "$ref": "#/$defs/DailyResult"
+        },
+        "already_completed": {
+          "type": "boolean"
+        },
+        "review_available": {
+          "const": true
+        },
+        "activity_created": {
+          "type": "boolean"
+        },
+        "current_streak": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "longest_streak": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "attempt",
+        "daily_result",
+        "already_completed",
+        "review_available",
+        "activity_created",
+        "current_streak",
+        "longest_streak"
+      ],
+      "additionalProperties": false
+    },
+    "Error": {
+      "type": "object",
+      "properties": {
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "type": "string",
+              "minLength": 1
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "request_id": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "retryable",
+            "request_id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "error"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
